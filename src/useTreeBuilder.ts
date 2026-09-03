@@ -74,6 +74,28 @@ export function useTreeBuilder(treeId: string) {
   // Prevent saving stale cache back to Supabase before the cloud fetch completes
   const hasLoadedRef = useRef(false)
 
+  const [isOffline, setIsOffline] = useState(!navigator.onLine)
+
+  // Track online/offline status and auto-sync when connection returns
+  useEffect(() => {
+    function handleOnline() {
+      setIsOffline(false)
+      if (hasLoadedRef.current) {
+        void saveTreeState(treeId, state)
+      }
+    }
+    function handleOffline() {
+      setIsOffline(true)
+    }
+
+    window.addEventListener('online', handleOnline)
+    window.addEventListener('offline', handleOffline)
+    return () => {
+      window.removeEventListener('online', handleOnline)
+      window.removeEventListener('offline', handleOffline)
+    }
+  }, [treeId, state])
+
   // ── Initial cloud fetch ──
   useEffect(() => {
     hasLoadedRef.current = false
@@ -91,7 +113,7 @@ export function useTreeBuilder(treeId: string) {
         }
       })
       .catch(() => {
-        // Offline or error — keep using cache
+        // Offline or error — keep using cache safely
       })
       .finally(() => {
         hasLoadedRef.current = true
@@ -107,6 +129,7 @@ export function useTreeBuilder(treeId: string) {
   // ── Debounced cloud save (only after initial fetch) ──
   useEffect(() => {
     if (!hasLoadedRef.current) return
+    if (!navigator.onLine) return // Saved locally, skip cloud fetch until back online
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
     saveTimerRef.current = setTimeout(() => {
       void saveTreeState(treeId, state)
@@ -115,6 +138,7 @@ export function useTreeBuilder(treeId: string) {
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
     }
   }, [state, treeId])
+
 
   // ── Tree builder actions (unchanged from before) ──
 
@@ -488,8 +512,10 @@ export function useTreeBuilder(treeId: string) {
   return {
     ...state,
     isSyncing,
+    isOffline,
     currentPerson,
     startRoot,
+
     addChild,
     setChildren,
     setChildrenAndContinue,

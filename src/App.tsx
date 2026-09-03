@@ -355,11 +355,16 @@ function TreeChartPage({
           🔍 معرفة صلة القرابة
         </button>
 
-        {tree.isSyncing && (
+        {tree.isOffline ? (
+          <span className="sync-indicator offline" role="status" title="حفظ محلي تلقائي بدون إنترنت">
+            ⚡ بدون إنترنت (حفظ محلي)
+          </span>
+        ) : tree.isSyncing ? (
           <span className="sync-indicator" role="status">
             ⟳ جارٍ المزامنة
           </span>
-        )}
+        ) : null}
+
 
         <div className="counts">
           <span>{arabicCount(counts.males, 'رجل', 'رجال')}</span>

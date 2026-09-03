@@ -1,0 +1,18 @@
+{
+  "short_name": "نَسَب",
+  "name": "تطبيق نَسَب - شجرة العائلة والنسب",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "type": "image/svg+xml",
+      "sizes": "any"
+    }
+  ],
+  "start_url": "/",
+  "background_color": "#121418",
+  "theme_color": "#2c6ecb",
+  "display": "standalone",
+  "orientation": "any",
+  "dir": "rtl",
+  "lang": "ar"
+}
