@@ -5,7 +5,10 @@ import { PersonEditor } from './components/PersonEditor'
 import { TreeRoot } from './components/TreeView'
 import { VisualTreeChart } from './components/VisualTreeChart'
 import { RelationshipModal } from './components/RelationshipModal'
+import { PrintableTributeView } from './components/PrintableTributeView'
 
+import { useSessionList } from './hooks/useSessionList'
+import { useSync } from './hooks/useSync'
 import {
   collectMalesDFS,
   countPeople,
@@ -16,11 +19,9 @@ import {
 import { useTreeBuilder, initialState } from './useTreeBuilder'
 import {
   createTree,
-  deleteTree,
-  fetchDeviceTrees,
 } from './db'
 import { isConfigured } from './lib/supabase'
-import type { TreeMeta, TreeState } from './types'
+import type { TreeState } from './types'
 import './App.css'
 
 // ── Utilities ────────────────────────────────────────────────────────────────
@@ -47,11 +48,12 @@ function formatDate(iso: string) {
   }).format(new Date(iso))
 }
 
-function getUrlParams() {
+function getUrlParams(): { treeId: string | null; view: 'editor' | 'chart' | 'print' } {
   const params = new URLSearchParams(window.location.search)
+  const v = params.get('view')
   return {
     treeId: params.get('t'),
-    view: params.get('view') === 'chart' ? 'chart' : 'editor',
+    view: v === 'chart' ? 'chart' : v === 'print' ? 'print' : 'editor',
   }
 }
 
@@ -66,11 +68,12 @@ export default function App() {
     return () => window.removeEventListener('popstate', handler)
   }, [])
 
-  function navigate(id: string | null, view: 'editor' | 'chart' = 'editor') {
+  function navigate(id: string | null, view: 'editor' | 'chart' | 'print' = 'editor') {
     let url = window.location.pathname
     if (id) {
       url += `?t=${id}`
       if (view === 'chart') url += `&view=chart`
+      else if (view === 'print') url += `&view=print`
     }
     history.pushState({}, '', url)
     setRoute({ treeId: id, view: id ? view : 'editor' })
@@ -83,6 +86,18 @@ export default function App() {
       <TreeChartPage
         treeId={route.treeId}
         onGoToEditor={() => navigate(route.treeId, 'editor')}
+        onGoToPrint={() => navigate(route.treeId, 'print')}
+        onGoHome={() => navigate(null)}
+      />
+    )
+  }
+
+  if (route.view === 'print') {
+    return (
+      <TreePrintPage
+        treeId={route.treeId}
+        onGoToEditor={() => navigate(route.treeId, 'editor')}
+        onGoToChart={() => navigate(route.treeId, 'chart')}
         onGoHome={() => navigate(null)}
       />
     )
@@ -92,6 +107,7 @@ export default function App() {
     <TreeApp
       treeId={route.treeId}
       onOpenChart={() => navigate(route.treeId, 'chart')}
+      onOpenPrint={() => navigate(route.treeId, 'print')}
       onGoHome={() => navigate(null)}
     />
   )
@@ -103,8 +119,17 @@ export default function App() {
 const OLD_STORAGE_KEY = 'nasab-tree-state-v1'
 
 function HomeScreen({ onNavigate }: { onNavigate: (id: string) => void }) {
-  const [trees, setTrees] = useState<TreeMeta[]>([])
-  const [loadingTrees, setLoadingTrees] = useState(true)
+  const {
+    sessions,
+    source,
+    loading,
+    downloadingId,
+    downloadSession,
+    deleteSession,
+    refresh,
+  } = useSessionList()
+
+  const { isSyncing, syncNow } = useSync()
   const [creating, setCreating] = useState(false)
   const [migratingState, setMigratingState] = useState<TreeState | null>(null)
   const [migrating, setMigrating] = useState(false)
@@ -121,30 +146,19 @@ function HomeScreen({ onNavigate }: { onNavigate: (id: string) => void }) {
     } catch {
       // ignore
     }
-
-    // Load trees from Supabase (or fall back to empty if not configured)
-    if (isConfigured) {
-      fetchDeviceTrees()
-        .then(setTrees)
-        .finally(() => setLoadingTrees(false))
-    } else {
-      setLoadingTrees(false)
-    }
   }, [])
 
   async function handleCreate() {
-    if (!isConfigured) {
-      alert('يرجى إعداد Supabase أولاً: أضف مفاتيح .env.local ثم أعد تشغيل التطبيق.')
-      return
-    }
     setCreating(true)
     const id = await createTree('شجرة جديدة', initialState)
     setCreating(false)
-    if (id) onNavigate(id)
+    if (id) {
+      onNavigate(id)
+    }
   }
 
   async function handleMigrate() {
-    if (!migratingState || !isConfigured) return
+    if (!migratingState) return
     setMigrating(true)
     const name = migratingState.root?.name ?? 'شجرة مستعادة'
     const id = await createTree(name, migratingState)
@@ -156,8 +170,7 @@ function HomeScreen({ onNavigate }: { onNavigate: (id: string) => void }) {
   }
 
   async function handleDelete(id: string) {
-    await deleteTree(id)
-    setTrees((prev) => prev.filter((t) => t.id !== id))
+    await deleteSession(id)
     setDeleteConfirm(null)
   }
 
@@ -197,6 +210,8 @@ create trigger trees_updated_at
     )
   }
 
+  const isOffline = source === 'local' || !navigator.onLine
+
   return (
     <main className="home" dir="rtl">
       <header className="home-header">
@@ -204,9 +219,39 @@ create trigger trees_updated_at
           <span className="brand-mark">ن</span>
           <span>نَسَب</span>
         </div>
+
+        <div className="home-header-status">
+          {isSyncing ? (
+            <span className="sync-status-badge syncing" role="status">
+              <span className="spin">⟳</span> جارٍ المزامنة السحابية…
+            </span>
+          ) : isOffline ? (
+            <span className="sync-status-badge offline" role="status">
+              ⚡ وضع عدم الاتصال (محلي)
+            </span>
+          ) : (
+            <button
+              className="sync-status-badge online"
+              onClick={() => void syncNow()}
+              title="انقر لتحديث المزامنة يدويًا"
+            >
+              ● متصل بالسحابة
+            </button>
+          )}
+        </div>
       </header>
 
       <div className="home-content">
+        {/* Offline notice banner */}
+        {isOffline && (
+          <div className="offline-banner" role="alert">
+            <span className="offline-banner-icon">⚡</span>
+            <div className="offline-banner-text">
+              <strong>أنت غير متصل بالإنترنت</strong> — تظهر الجلسات المحمّلة فقط. يمكنك العمل وتعديلها وسيتم رفع التعديلات تلقائيًا فور عودة الاتصال.
+            </div>
+          </div>
+        )}
+
         {/* Migration banner */}
         {migratingState && (
           <div className="migration-banner">
@@ -227,69 +272,150 @@ create trigger trees_updated_at
         )}
 
         <div className="home-actions">
-          <h2 className="home-section-title">أشجارك</h2>
-          <button
-            id="btn-create-tree"
-            className="primary"
-            onClick={() => void handleCreate()}
-            disabled={creating}
-          >
-            {creating ? 'جارٍ الإنشاء…' : '+ شجرة جديدة'}
-          </button>
+          <div className="home-title-group">
+            <h2 className="home-section-title">أشجارك وجلساتك</h2>
+            <span className="home-count-pill">{sessions.length} شجرة</span>
+          </div>
+
+          <div className="home-actions-btns">
+            {!isOffline && (
+              <button
+                className="compact-button"
+                onClick={() => void refresh()}
+                title="تحديث القائمة"
+              >
+                ↻ تحديث
+              </button>
+            )}
+            <button
+              id="btn-create-tree"
+              className="primary"
+              onClick={() => void handleCreate()}
+              disabled={creating}
+            >
+              {creating ? 'جارٍ الإنشاء…' : '+ شجرة جديدة'}
+            </button>
+          </div>
         </div>
 
-        {loadingTrees ? (
-          <p className="home-empty">جارٍ التحميل…</p>
-        ) : trees.length === 0 ? (
-          <p className="home-empty">لا توجد أشجار بعد. ابدأ بإنشاء شجرة جديدة.</p>
+        {loading ? (
+          <div className="home-empty-card">
+            <div className="spin" style={{ fontSize: '24px', marginBottom: '8px' }}>⟳</div>
+            <p>جارٍ تحميل الجلسات…</p>
+          </div>
+        ) : sessions.length === 0 ? (
+          <div className="home-empty-card">
+            {isOffline ? (
+              <>
+                <p className="home-empty-title">لا توجد جلسات محمّلة محليًا</p>
+                <p className="home-empty-sub">
+                  أنت غير متصل بالإنترنت ولم تقم بتحميل أي جلسة مسبقًا. يمكنك إنشاء شجرة جديدة والعمل عليها محليًا.
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="home-empty-title">لا توجد أشجار بعد</p>
+                <p className="home-empty-sub">ابدأ بإنشاء شجرة جديدة لبناء وتوثيق أنساب العائلة.</p>
+              </>
+            )}
+          </div>
         ) : (
           <ul className="tree-list" role="list">
-            {trees.map((tree) => (
-              <li key={tree.id} className="tree-list-item">
-                <div className="tree-list-info">
-                  <p className="tree-list-name">{tree.name}</p>
-                  <p className="tree-list-date">{formatDate(tree.updated_at)}</p>
-                </div>
-                <div className="tree-list-actions">
-                  {deleteConfirm === tree.id ? (
-                    <>
+            {sessions.map((session) => {
+              const isDownloaded = session.downloaded === true
+              const isDownloading = downloadingId === session.id
+
+              return (
+                <li key={session.id} className="tree-list-item">
+                  <div className="tree-list-info">
+                    <div className="tree-list-title-row">
+                      <p className="tree-list-name">{session.name}</p>
+                      {session.rootAncestor && session.rootAncestor !== session.name && (
+                        <span className="session-root-tag" title="الجد الأساسي">
+                          الأصل: {session.rootAncestor}
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="tree-list-meta-row">
+                      <span className="tree-list-date">
+                        🕒 آخر تعديل: {formatDate(session.updated_at)}
+                      </span>
+
+                      {isDownloaded ? (
+                        <span
+                          className="session-badge downloaded"
+                          title="هذه الشجرة محملة على هذا الجهاز ومتاحة للاستخدام بدون إنترنت"
+                        >
+                          ✓ متاح بدون إنترنت
+                        </span>
+                      ) : (
+                        <span
+                          className="session-badge cloud-only"
+                          title="موجودة في السحابة فقط — حمّلها لتتمكن من فتحها بدون اتصال"
+                        >
+                          ☁ في السحابة
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="tree-list-actions">
+                    {/* Download button for online & not downloaded */}
+                    {!isOffline && !isDownloaded && (
                       <button
-                        className="danger-button"
-                        onClick={() => void handleDelete(tree.id)}
+                        className="compact-button download-action-btn"
+                        onClick={() => void downloadSession(session.id)}
+                        disabled={isDownloading}
+                        title="تحميل الشجرة للعمل بدون إنترنت"
                       >
-                        تأكيد الحذف
+                        {isDownloading ? 'جارٍ التحميل…' : '⬇ تحميل للأوفلاين'}
                       </button>
-                      <button
-                        className="compact-button"
-                        onClick={() => setDeleteConfirm(null)}
-                      >
-                        إلغاء
-                      </button>
-                    </>
-                  ) : (
-                    <>
-                      <button
-                        className="primary"
-                        onClick={() => onNavigate(tree.id)}
-                      >
-                        فتح
-                      </button>
-                      <button
-                        className="compact-button"
-                        onClick={() => setDeleteConfirm(tree.id)}
-                      >
-                        حذف
-                      </button>
-                    </>
-                  )}
-                </div>
-              </li>
-            ))}
+                    )}
+
+                    {deleteConfirm === session.id ? (
+                      <>
+                        <button
+                          className="danger-button"
+                          onClick={() => void handleDelete(session.id)}
+                        >
+                          تأكيد الحذف
+                        </button>
+                        <button
+                          className="compact-button"
+                          onClick={() => setDeleteConfirm(null)}
+                        >
+                          إلغاء
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <button
+                          className="primary open-action-btn"
+                          onClick={() => onNavigate(session.id)}
+                        >
+                          فتح
+                        </button>
+                        <button
+                          className="compact-button delete-action-btn"
+                          onClick={() => setDeleteConfirm(session.id)}
+                          title="حذف الشجرة"
+                        >
+                          حذف
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </li>
+              )
+            })}
           </ul>
         )}
 
         <p className="home-hint">
-          لمشاركة شجرة مع جهاز آخر، انسخ رابط الصفحة بعد الفتح.
+          {isOffline
+            ? '💡 يمكنك تعديل الجلسات المحملة بالكامل بدون إنترنت، وستُرفع تلقائيًا فور اتصالك.'
+            : '💡 قم بتحميل الجلسات (⬇) قبل مغادرة الاتصال بالإنترنت لتتمكن من تعديلها في أي وقت.'}
         </p>
       </div>
     </main>
@@ -301,10 +427,12 @@ create trigger trees_updated_at
 function TreeChartPage({
   treeId,
   onGoToEditor,
+  onGoToPrint,
   onGoHome,
 }: {
   treeId: string
   onGoToEditor: () => void
+  onGoToPrint: () => void
   onGoHome: () => void
 }) {
   const tree = useTreeBuilder(treeId)
@@ -345,6 +473,15 @@ function TreeChartPage({
           onClick={onGoToEditor}
         >
           📝 نموذج الإدخال
+        </button>
+
+        <button
+          type="button"
+          className="compact-button"
+          onClick={onGoToPrint}
+          title="عرض وطباعة وثيقة ومشجر النسب"
+        >
+          🖨️ وثيقة للطباعة
         </button>
 
         <button
@@ -400,16 +537,57 @@ function TreeChartPage({
     </div>
   )
 }
+
+// ── Tree Print Page (archival printable tribute & chart) ──────────────────────
+
+function TreePrintPage({
+  treeId,
+  onGoToEditor,
+  onGoToChart,
+  onGoHome,
+}: {
+  treeId: string
+  onGoToEditor: () => void
+  onGoToChart: () => void
+  onGoHome: () => void
+}) {
+  const tree = useTreeBuilder(treeId)
+
+  if (!tree.root) {
+    return (
+      <main className="setup" dir="rtl">
+        <div className="setup-card">
+          <button className="back-button" onClick={onGoHome} type="button">
+            → العودة إلى الرئيسية
+          </button>
+          <p className="eyebrow">نَسَب</p>
+          <h1>جارٍ إعداد الوثيقة للطباعة…</h1>
+        </div>
+      </main>
+    )
+  }
+
+  return (
+    <PrintableTributeView
+      root={tree.root}
+      treeName={`وثيقة نسب آل ${tree.root.name}`}
+      onGoBack={onGoToEditor}
+      onGoToChart={onGoToChart}
+    />
+  )
+}
 // ── Tree App (the main editor) ────────────────────────────────────────────────
 
 
 function TreeApp({
   treeId,
   onOpenChart,
+  onOpenPrint,
   onGoHome,
 }: {
   treeId: string
   onOpenChart: () => void
+  onOpenPrint: () => void
   onGoHome: () => void
 }) {
   const tree = useTreeBuilder(treeId)
@@ -590,6 +768,15 @@ function TreeApp({
           🌳 مخطط الشجرة
         </button>
 
+        <button
+          type="button"
+          className="compact-button"
+          onClick={onOpenPrint}
+          title="عرض وطباعة وثيقة ومشجر النسب"
+        >
+          🖨️ وثيقة للطباعة
+        </button>
+
 
         {tree.isSyncing && (
           <span className="sync-indicator" role="status" aria-live="polite">
@@ -669,6 +856,12 @@ function TreeApp({
             <div className="actions">
               <button
                 className="primary"
+                onClick={onOpenPrint}
+                title="عرض وطباعة وثيقة ومشجر النسب"
+              >
+                🖨️ طباعة وثيقة النسب
+              </button>
+              <button
                 onClick={() =>
                   download(
                     'nasab.json',

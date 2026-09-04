@@ -1,4 +1,10 @@
 import { supabase, isConfigured } from './lib/supabase'
+import {
+  deleteSessionLocally,
+  getAllSessions,
+  getSession,
+  saveSessionLocally,
+} from './localDb'
 import type { TreeMeta, TreeState } from './types'
 
 // ── Device tree registry (localStorage list of IDs this device knows about) ──
@@ -69,18 +75,33 @@ export function setCachedTreeList(trees: TreeMeta[]) {
 
 // ── Supabase CRUD with Offline Fallback ──
 
-
 export async function fetchDeviceTrees(): Promise<TreeMeta[]> {
   const cached = getCachedTreeList()
 
   if (!navigator.onLine || !isConfigured) {
+    // Merge with IndexedDB sessions
+    try {
+      const localSessions = await getAllSessions()
+      if (localSessions.length > 0) {
+        return localSessions.map((s) => ({
+          id: s.id,
+          name: s.name,
+          updated_at: s.updated_at,
+          downloaded: true,
+          synced: s.synced ?? true,
+          rootAncestor: s.rootAncestor || s.state?.root?.name || s.name,
+        }))
+      }
+    } catch {
+      // ignore
+    }
     return cached
   }
 
   try {
     const { data, error } = await supabase
       .from('trees')
-      .select('id, name, updated_at')
+      .select('id, name, updated_at, state')
       .order('updated_at', { ascending: false })
       .limit(50)
 
@@ -88,7 +109,17 @@ export async function fetchDeviceTrees(): Promise<TreeMeta[]> {
       return cached
     }
 
-    const remoteTrees = data as TreeMeta[]
+    const localSessions = await getAllSessions().catch(() => [])
+    const localMap = new Map(localSessions.map((s) => [s.id, s]))
+
+    const remoteTrees: TreeMeta[] = data.map((t: any) => ({
+      id: t.id,
+      name: t.name,
+      updated_at: t.updated_at,
+      downloaded: Boolean(localMap.get(t.id)?.downloaded),
+      synced: true,
+      rootAncestor: t.state?.root?.name || t.name,
+    }))
 
     // Merge remote trees with any local-only offline trees
     const remoteIds = new Set(remoteTrees.map((t) => t.id))
@@ -106,40 +137,71 @@ export async function fetchTreeState(id: string): Promise<TreeState | null> {
   const cached = getCachedState(id)
 
   if (!navigator.onLine || !isConfigured) {
-    return cached
+    if (cached) return cached
+    const local = await getSession(id)
+    return local ? local.state : null
   }
 
   try {
     const { data, error } = await supabase
       .from('trees')
-      .select('state')
+      .select('state, name, updated_at')
       .eq('id', id)
       .single()
 
     if (error || !data) {
-      return cached
+      if (cached) return cached
+      const local = await getSession(id)
+      return local ? local.state : null
     }
 
     const state = data.state as TreeState
     setCachedState(id, state)
+    // Update local IndexedDB if already downloaded
+    const local = await getSession(id)
+    if (local?.downloaded) {
+      await saveSessionLocally(
+        {
+          id,
+          name: data.name || local.name,
+          state,
+          updated_at: data.updated_at || new Date().toISOString(),
+          downloaded: true,
+          synced: true,
+        },
+        true
+      )
+    }
     return state
   } catch {
-    return cached
+    if (cached) return cached
+    const local = await getSession(id)
+    return local ? local.state : null
   }
 }
 
 export async function createTree(
   name: string,
-  state: TreeState,
+  state: TreeState
 ): Promise<string | null> {
   const localId = crypto.randomUUID ? crypto.randomUUID() : 'tree-' + Date.now()
   const now = new Date().toISOString()
 
-  // Save locally first so the app works 100% offline
+  // Save locally first in localStorage AND IndexedDB so the app works 100% offline
   setCachedState(localId, state)
+  await saveSessionLocally({
+    id: localId,
+    name,
+    state,
+    updated_at: now,
+    downloaded: true,
+    synced: false,
+    rootAncestor: state.root?.name || name,
+  })
+
   const currentList = getCachedTreeList()
   const updatedList: TreeMeta[] = [
-    { id: localId, name, updated_at: now },
+    { id: localId, name, updated_at: now, downloaded: true, synced: false },
     ...currentList.filter((t) => t.id !== localId),
   ]
   setCachedTreeList(updatedList)
@@ -161,17 +223,45 @@ export async function createTree(
 
     const realId = data.id as string
 
-    // If Supabase created a different UUID, update local cache
+    // If Supabase created a different UUID, update local caches
     if (realId !== localId) {
       localStorage.removeItem(CACHE_PREFIX + localId)
+      await deleteSessionLocally(localId)
+
       setCachedState(realId, state)
+      await saveSessionLocally(
+        {
+          id: realId,
+          name,
+          state,
+          updated_at: now,
+          downloaded: true,
+          synced: true,
+          rootAncestor: state.root?.name || name,
+        },
+        true
+      )
 
       const finalTreeList = updatedList.map((t) =>
-        t.id === localId ? { ...t, id: realId } : t,
+        t.id === localId ? { ...t, id: realId, synced: true } : t
       )
       setCachedTreeList(finalTreeList)
       return realId
     }
+
+    // Mark synced in IndexedDB
+    await saveSessionLocally(
+      {
+        id: localId,
+        name,
+        state,
+        updated_at: now,
+        downloaded: true,
+        synced: true,
+        rootAncestor: state.root?.name || name,
+      },
+      true
+    )
 
     return localId
   } catch {
@@ -180,26 +270,58 @@ export async function createTree(
 }
 
 export async function saveTreeState(id: string, state: TreeState): Promise<void> {
+  const now = new Date().toISOString()
+  const name = state.root?.name ? `شجرة ${state.root.name}` : undefined
+
   // Always update local cache instantly
   setCachedState(id, state)
 
-  // Update updated_at in local tree list metadata
+  // Update in IndexedDB (marked synced: false initially until uploaded)
+  const existing = await getSession(id)
+  const sessionName = name || existing?.name || 'شجرتي'
+
+  await saveSessionLocally({
+    id,
+    name: sessionName,
+    state,
+    updated_at: now,
+    downloaded: true,
+    synced: false,
+    rootAncestor: state.root?.name || existing?.rootAncestor || sessionName,
+  })
+
+  // Update metadata cache
   const list = getCachedTreeList()
   const treeIndex = list.findIndex((t) => t.id === id)
   if (treeIndex !== -1) {
-    list[treeIndex].updated_at = new Date().toISOString()
-    if (state.root?.name) {
-      list[treeIndex].name = `شجرة ${state.root.name}`
-    }
+    list[treeIndex].updated_at = now
+    if (name) list[treeIndex].name = name
     setCachedTreeList([...list])
   }
 
   if (!navigator.onLine || !isConfigured) return
 
   try {
-    await supabase.from('trees').update({ state }).eq('id', id)
+    const payload: any = { state, updated_at: now }
+    if (name) payload.name = name
+
+    const { error } = await supabase.from('trees').update(payload).eq('id', id)
+    if (!error) {
+      await saveSessionLocally(
+        {
+          id,
+          name: sessionName,
+          state,
+          updated_at: now,
+          downloaded: true,
+          synced: true,
+          rootAncestor: state.root?.name || sessionName,
+        },
+        true
+      )
+    }
   } catch {
-    // Will auto-sync when online
+    // Will auto-sync via useSync
   }
 }
 
@@ -209,6 +331,11 @@ export async function renameTree(id: string, name: string): Promise<void> {
   if (tree) {
     tree.name = name
     setCachedTreeList([...list])
+  }
+
+  const existing = await getSession(id)
+  if (existing) {
+    await saveSessionLocally({ ...existing, name })
   }
 
   if (!navigator.onLine || !isConfigured) return
@@ -225,6 +352,8 @@ export async function deleteTree(id: string): Promise<void> {
   setCachedTreeList(list)
   localStorage.removeItem(CACHE_PREFIX + id)
 
+  await deleteSessionLocally(id)
+
   if (!navigator.onLine || !isConfigured) return
 
   try {
@@ -233,4 +362,3 @@ export async function deleteTree(id: string): Promise<void> {
     // Deleted locally
   }
 }
-

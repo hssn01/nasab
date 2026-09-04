@@ -1,0 +1,706 @@
+/* ==========================================================================
+   Printable Tribute & Archival Tree View (وثيقة ومشجّر النسب للطباعة)
+   ========================================================================== */
+
+.print-page-wrapper {
+  min-height: 100vh;
+  background-color: #24272c;
+  color: #1a1a1a;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+/* ── Screen-only Floating Controls ── */
+.print-toolbar-container {
+  width: 100%;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: rgba(30, 33, 38, 0.95);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+  padding: 12px 24px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
+}
+
+.print-toolbar {
+  max-width: 1200px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.print-toolbar-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.print-nav-btn {
+  background: rgba(255, 255, 255, 0.1);
+  color: #e2e8f0;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+  padding: 6px 14px;
+  font-size: 13px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.2s ease;
+}
+
+.print-nav-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.35);
+}
+
+.print-action-primary {
+  background: #c29b38;
+  color: #1a1200;
+  font-weight: 700;
+  border: 1px solid #d4af37;
+  border-radius: 8px;
+  padding: 8px 20px;
+  font-size: 15px;
+  cursor: pointer;
+  box-shadow: 0 2px 10px rgba(194, 155, 56, 0.35);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  transition: all 0.2s ease;
+}
+
+.print-action-primary:hover {
+  background: #d4af37;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 14px rgba(194, 155, 56, 0.5);
+}
+
+.print-toggle-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: #cbd5e1;
+  cursor: pointer;
+  user-select: none;
+  background: rgba(255, 255, 255, 0.06);
+  padding: 5px 10px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.print-toggle-label input[type="checkbox"] {
+  accent-color: #c29b38;
+  cursor: pointer;
+}
+
+.print-view-selector {
+  display: inline-flex;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.08);
+  padding: 3px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.print-view-tab {
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  padding: 5px 12px;
+  font-size: 13px;
+  cursor: pointer;
+  border-radius: 6px;
+  transition: all 0.2s;
+}
+
+.print-view-tab.active {
+  background: #334155;
+  color: #f8fafc;
+  font-weight: 600;
+}
+
+/* ── Screen Page Preview Canvas ── */
+.print-stage {
+  padding: 36px 20px 60px;
+  width: 100%;
+  display: flex;
+  justify-content: center;
+}
+
+.tribute-paper {
+  background: #fdfbf7;
+  color: #231f18;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+  border-radius: 4px;
+  padding: 40px 48px;
+  position: relative;
+  transition: width 0.3s ease;
+  font-family: 'Amiri', 'Traditional Arabic', 'Scheherazade New', Tahoma, 'Segoe UI', serif;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+
+.tribute-paper.portrait {
+  width: 210mm;
+  min-height: 297mm;
+}
+
+.tribute-paper.landscape {
+  width: 297mm;
+  min-height: 210mm;
+}
+
+/* ── Ornamental Borders ── */
+.tribute-outer-border {
+  border: 3px double #99782d;
+  padding: 10px;
+  height: 100%;
+  position: relative;
+  border-radius: 4px;
+}
+
+.tribute-inner-border {
+  border: 1px solid #bba15d;
+  padding: 24px 28px;
+  min-height: calc(100% - 20px);
+  position: relative;
+  background: radial-gradient(circle at center, #ffffff 0%, #fbf9f2 100%);
+}
+
+.corner-ornament {
+  position: absolute;
+  width: 28px;
+  height: 28px;
+  color: #99782d;
+  font-size: 20px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.corner-top-right { top: -14px; right: -14px; }
+.corner-top-left { top: -14px; left: -14px; }
+.corner-bottom-right { bottom: -14px; right: -14px; }
+.corner-bottom-left { bottom: -14px; left: -14px; }
+
+/* ── Document Header ── */
+.tribute-header {
+  text-align: center;
+  margin-bottom: 24px;
+  padding-bottom: 16px;
+  border-bottom: 2px solid #e2d7ba;
+  position: relative;
+}
+
+.tribute-basmala {
+  font-size: 24px;
+  font-weight: 700;
+  color: #634b17;
+  letter-spacing: 1px;
+  margin-bottom: 8px;
+}
+
+.tribute-title-badge {
+  display: inline-block;
+  background: #f4ecda;
+  color: #785a1a;
+  border: 1px solid #d4c49d;
+  border-radius: 20px;
+  padding: 4px 18px;
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.tribute-main-title {
+  font-size: 32px;
+  font-weight: 800;
+  color: #3b2a0c;
+  margin: 6px 0 10px;
+  line-height: 1.3;
+}
+
+.tribute-progenitor {
+  font-size: 20px;
+  color: #8c6a1e;
+  font-weight: 700;
+}
+
+.tribute-lineage-text {
+  font-size: 15px;
+  color: #594d3b;
+  margin-top: 6px;
+  line-height: 1.6;
+}
+
+.tribute-divider {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin: 14px 0 8px;
+  color: #99782d;
+  font-size: 14px;
+}
+
+.tribute-divider::before,
+.tribute-divider::after {
+  content: '';
+  height: 1px;
+  width: 80px;
+  background: #d4c49d;
+}
+
+/* ── Archival Dedication / Tribute Text ── */
+.tribute-dedication {
+  background: #fbf8f0;
+  border-right: 4px solid #b38b30;
+  padding: 12px 18px;
+  border-radius: 4px;
+  margin-bottom: 22px;
+  font-size: 14px;
+  line-height: 1.75;
+  color: #433928;
+  text-align: justify;
+}
+
+/* ── Statistics Summary Bar ── */
+.tribute-stats-bar {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 12px;
+  background: #f7f3e8;
+  border: 1px solid #e3d8bf;
+  border-radius: 6px;
+  padding: 12px 16px;
+  margin-bottom: 24px;
+  text-align: center;
+}
+
+.stat-item-label {
+  font-size: 12px;
+  color: #71624c;
+  margin-bottom: 2px;
+}
+
+.stat-item-val {
+  font-size: 19px;
+  font-weight: 800;
+  color: #2d2415;
+}
+
+/* ==========================================================================
+   NEW: Family Register & Outline Tree styles (redesigned 2026-09)
+   ========================================================================== */
+
+/* ── Register intro note ── */
+.register-intro-note {
+  font-size: 12px;
+  color: #7b6a50;
+  text-align: center;
+  margin-bottom: 18px;
+  padding: 6px 12px;
+  background: #f7f3e8;
+  border: 1px dashed #d4c49d;
+  border-radius: 6px;
+  font-style: italic;
+}
+
+/* ── Family Entry Card (DFS branch order) ── */
+.family-entry-card {
+  background: #fff;
+  border: 1px solid #e5dece;
+  border-radius: 8px;
+  padding: 12px 14px 10px;
+  margin-bottom: 10px;
+  page-break-inside: avoid;
+  break-inside: avoid;
+  /* Visual left indent based on generation depth */
+  margin-right: calc(var(--entry-depth, 0) * 14px);
+  border-right: 3px solid hsl(calc(210 - var(--entry-depth, 0) * 18), 45%, 55%);
+}
+
+/* Lineage breadcrumb above each entry */
+.entry-lineage-breadcrumb {
+  font-size: 11.5px;
+  color: #7b6a50;
+  margin-bottom: 5px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+}
+
+.lineage-sep {
+  color: #a89070;
+  font-weight: 400;
+  margin: 0 2px;
+}
+
+.lineage-ancestor {
+  color: #5d4c32;
+  font-weight: 600;
+}
+
+.entry-id-tag {
+  font-family: var(--mono, monospace);
+  font-size: 10px;
+  background: #edf2f7;
+  color: #4a5568;
+  padding: 0 4px;
+  border-radius: 3px;
+  margin-right: 3px;
+}
+
+/* Father header row */
+.entry-father-header {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-bottom: 6px;
+}
+
+.entry-generation-badge {
+  font-size: 10px;
+  color: #78622e;
+  background: #f4ecda;
+  border: 1px solid #d4c49d;
+  border-radius: 10px;
+  padding: 1px 7px;
+  white-space: nowrap;
+}
+
+.entry-father-name {
+  font-size: 16px;
+  font-weight: 800;
+  color: #1e293b;
+  letter-spacing: -0.01em;
+}
+
+.entry-has-descendants {
+  font-size: 11px;
+  color: #15803d;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: 10px;
+  padding: 1px 7px;
+  white-space: nowrap;
+}
+
+/* Wives row */
+.entry-wives-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+  margin-bottom: 6px;
+  font-size: 12px;
+}
+
+.entry-wives-label {
+  color: #6b567b;
+  font-weight: 600;
+}
+
+.entry-wife-chip {
+  background: #faf5ff;
+  border: 1px solid #e9d5ff;
+  color: #6b21a8;
+  border-radius: 4px;
+  padding: 1px 7px;
+  font-size: 12px;
+}
+
+/* Children section */
+.entry-no-children {
+  font-size: 11.5px;
+  color: #94a3b8;
+  font-style: italic;
+  margin: 4px 0 0;
+}
+
+.entry-children-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.entry-children-col {
+  flex: 1;
+  min-width: 200px;
+}
+
+.col-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: #475569;
+  display: block;
+  margin-bottom: 4px;
+}
+
+.children-inline-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.child-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 8px;
+  border-radius: 5px;
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+
+.male-chip {
+  background: #eff6ff;
+  color: #1d4ed8;
+  border: 1px solid #bfdbfe;
+}
+
+.female-chip {
+  background: #fdf2f8;
+  color: #9d174d;
+  border: 1px solid #fbcfe8;
+}
+
+.child-ordinal {
+  font-size: 10px;
+  color: #94a3b8;
+}
+
+/* Arrow indicating child has a further record */
+.child-has-record {
+  font-size: 10px;
+  color: #15803d;
+  font-weight: 700;
+  margin-right: 2px;
+}
+
+.sons-col .col-label { color: #1e40af; }
+.daughters-col .col-label { color: #9d174d; }
+
+/* ==========================================================================
+   NEW: Outline Tree (compact hierarchical text tree)
+   ========================================================================== */
+
+.outline-tree-body {
+  font-family: var(--mono, 'Cascadia Mono', Consolas, monospace);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.outline-node {
+  display: block;
+}
+
+.outline-person {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 5px;
+  padding: 1px 0;
+  page-break-inside: avoid;
+  break-inside: avoid;
+}
+
+.outline-connector {
+  color: #94a3b8;
+  white-space: pre;
+  font-size: 12px;
+  line-height: 1;
+  align-self: center;
+}
+
+.outline-name {
+  font-family: 'Tahoma', 'Segoe UI', system-ui, sans-serif;
+  font-weight: 700;
+}
+
+.outline-name-male {
+  color: #1e3a8a;
+}
+
+.outline-name-female {
+  color: #9d174d;
+}
+
+.outline-id {
+  font-family: var(--mono, monospace);
+  font-size: 10.5px;
+  color: #64748b;
+  background: #f1f5f9;
+  padding: 0 4px;
+  border-radius: 3px;
+}
+
+.outline-wives {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.outline-wife {
+  font-size: 11px;
+  color: #7e22ce;
+  background: #faf5ff;
+  border: 1px solid #e9d5ff;
+  padding: 0 5px;
+  border-radius: 3px;
+}
+
+.outline-child-count {
+  font-size: 10.5px;
+  color: #64748b;
+}
+
+.outline-children {
+  /* no extra indent here; connector strings handle depth visually */
+}
+
+/* Alternating subtle row tints for scannability */
+.outline-node:nth-child(even) > .outline-person {
+  background: #fafaf8;
+}
+
+/* Depth-based left border color hint */
+.depth-0 > .outline-person { border-right: 3px solid #3b82f6; padding-right: 6px; }
+.depth-1 > .outline-person { border-right: 2px solid #6366f1; padding-right: 5px; }
+.depth-2 > .outline-person { border-right: 2px solid #8b5cf6; padding-right: 5px; }
+.depth-3 > .outline-person { border-right: 1px solid #a78bfa; padding-right: 4px; }
+.depth-4 > .outline-person { border-right: 1px solid #c4b5fd; padding-right: 4px; }
+
+/* ── Archival Certification & Signature Footer ── */
+.tribute-footer {
+  margin-top: 36px;
+  padding-top: 18px;
+  border-top: 1.5px solid #d4c49d;
+  page-break-inside: avoid;
+  break-inside: avoid;
+}
+
+.tribute-cert-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  margin-bottom: 16px;
+}
+
+.cert-box {
+  border: 1px solid #e0d7c3;
+  background: #faf7ef;
+  border-radius: 6px;
+  padding: 12px 16px;
+}
+
+.cert-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #6d5420;
+  margin-bottom: 6px;
+}
+
+.cert-field-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+  color: #4b3d27;
+  margin-top: 6px;
+  border-bottom: 1px dotted #d1c5a9;
+  padding-bottom: 3px;
+}
+
+.cert-signature-space {
+  height: 44px;
+  border-bottom: 1px dashed #99782d;
+  margin-top: 10px;
+}
+
+.tribute-closing-note {
+  text-align: center;
+  font-size: 12px;
+  color: #8c7b64;
+  margin-top: 14px;
+}
+
+/* ==========================================================================
+   Print Specific Rules (@media print)
+   ========================================================================== */
+@media print {
+  /* Hide the web application shell & toolbar */
+  .print-toolbar-container,
+  .topbar,
+  .sidebar,
+  .home-header,
+  .actions,
+  button {
+    display: none !important;
+  }
+
+  body,
+  #root,
+  .print-page-wrapper {
+    background: #ffffff !important;
+    color: #000000 !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    min-height: auto !important;
+  }
+
+  .print-stage {
+    padding: 0 !important;
+    margin: 0 !important;
+    width: 100% !important;
+  }
+
+  .tribute-paper {
+    width: 100% !important;
+    min-height: auto !important;
+    box-shadow: none !important;
+    border-radius: 0 !important;
+    padding: 10mm 12mm !important;
+    background: #ffffff !important;
+  }
+
+  .tribute-outer-border {
+    border-color: #5c471c !important;
+  }
+
+  .tribute-inner-border {
+    border-color: #8c7138 !important;
+    background: #ffffff !important;
+    padding: 14px 18px !important;
+  }
+
+  .family-entry-card,
+  .tribute-footer,
+  .tribute-header,
+  .tribute-stats-bar {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  .family-entry-card {
+    box-shadow: none !important;
+    margin-bottom: 6px !important;
+    margin-right: calc(var(--entry-depth, 0) * 8px) !important;
+  }
+
+  @page {
+    margin: 10mm 10mm 12mm 10mm;
+    size: auto;
+  }
+}

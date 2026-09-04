@@ -1846,6 +1846,338 @@ button.danger-text {
   }
 }
 
+/* ---------- Home Screen & Offline Sync Architecture ---------- */
+
+.home {
+  min-height: 100svh;
+  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+}
+
+.home-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px clamp(20px, 5vw, 60px);
+  background: var(--bg-raised);
+  border-bottom: 1px solid var(--border);
+  box-shadow: 0 1px 4px oklch(0.3 0.02 70 / 0.04);
+}
+
+.home-header-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.sync-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 500;
+  border: 1px solid transparent;
+  cursor: pointer;
+  background: transparent;
+  transition: all 180ms ease;
+}
+
+.sync-status-badge.online {
+  color: oklch(0.48 0.14 145);
+  background: oklch(0.95 0.04 145);
+  border-color: oklch(0.85 0.08 145);
+}
+
+.sync-status-badge.online:hover {
+  background: oklch(0.92 0.06 145);
+}
+
+.sync-status-badge.offline {
+  color: oklch(0.55 0.14 65);
+  background: oklch(0.96 0.04 65);
+  border-color: oklch(0.88 0.08 65);
+}
+
+.sync-status-badge.syncing {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+
+.spin {
+  display: inline-block;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.home-content {
+  width: min(880px, 100%);
+  margin: 0 auto;
+  padding: 32px clamp(16px, 4vw, 32px);
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+/* Offline alert banner */
+.offline-banner {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 20px;
+  background: oklch(0.96 0.04 65);
+  border: 1px solid oklch(0.85 0.09 65);
+  border-radius: 10px;
+  color: oklch(0.35 0.06 65);
+  box-shadow: 0 2px 8px oklch(0.4 0.05 65 / 0.06);
+}
+
+.offline-banner-icon {
+  font-size: 22px;
+  line-height: 1;
+}
+
+.offline-banner-text {
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.offline-banner-text strong {
+  color: oklch(0.25 0.08 60);
+}
+
+/* Migration banner */
+.migration-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 24px;
+  background: var(--accent-soft);
+  border: 1px solid var(--accent);
+  border-radius: 12px;
+}
+
+.migration-title {
+  font-weight: 700;
+  font-size: 15px;
+  color: var(--text-strong);
+  margin-bottom: 4px;
+}
+
+.migration-sub {
+  font-size: 13px;
+  color: var(--text);
+}
+
+/* Home actions bar */
+.home-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 12px;
+  border-bottom: 2px solid var(--border);
+}
+
+.home-title-group {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.home-section-title {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-strong);
+}
+
+.home-count-pill {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 3px 9px;
+  background: var(--bg-sunken);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-dim);
+}
+
+.home-actions-btns {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* Tree list */
+.tree-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.tree-list-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 22px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 2px 8px oklch(0.35 0.02 70 / 0.04);
+  transition: all 180ms cubic-bezier(0.25, 1, 0.5, 1);
+}
+
+.tree-list-item:hover {
+  border-color: var(--accent);
+  box-shadow: 0 4px 14px oklch(0.35 0.02 70 / 0.08);
+  transform: translateY(-1px);
+}
+
+.tree-list-info {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.tree-list-title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.tree-list-name {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-strong);
+  font-family: var(--serif);
+}
+
+.session-root-tag {
+  font-size: 12px;
+  padding: 2px 8px;
+  background: var(--bg-sunken);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+}
+
+.tree-list-meta-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: 13px;
+}
+
+.tree-list-date {
+  color: var(--text-dim);
+}
+
+/* Session Badges */
+.session-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.session-badge.downloaded {
+  background: oklch(0.93 0.05 145);
+  border: 1px solid oklch(0.82 0.1 145);
+  color: oklch(0.38 0.13 145);
+}
+
+.session-badge.cloud-only {
+  background: var(--bg-sunken);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+}
+
+/* Tree actions */
+.tree-list-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.download-action-btn {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.download-action-btn:hover {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+.open-action-btn {
+  padding: 8px 18px;
+  font-weight: 600;
+}
+
+.delete-action-btn {
+  color: var(--text-dim);
+}
+
+.delete-action-btn:hover {
+  color: var(--danger);
+  border-color: var(--danger);
+  background: var(--danger-soft);
+}
+
+/* Home Empty Card */
+.home-empty-card {
+  text-align: center;
+  padding: 50px 24px;
+  background: var(--bg-raised);
+  border: 1px dashed var(--border-strong);
+  border-radius: 12px;
+  color: var(--text-dim);
+}
+
+.home-empty-title {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--text-strong);
+  margin-bottom: 6px;
+}
+
+.home-empty-sub {
+  font-size: 14px;
+  color: var(--text-dim);
+  max-width: 48ch;
+  margin: 0 auto;
+}
+
+.home-hint {
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-dim);
+  margin-top: 10px;
+}
+
+
 
 
 

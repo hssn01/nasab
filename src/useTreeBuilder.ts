@@ -126,14 +126,13 @@ export function useTreeBuilder(treeId: string) {
     setCachedState(treeId, state)
   }, [state, treeId])
 
-  // ── Debounced cloud save (only after initial fetch) ──
+  // ── Debounced save (saves to IndexedDB and pushes to cloud if online) ──
   useEffect(() => {
     if (!hasLoadedRef.current) return
-    if (!navigator.onLine) return // Saved locally, skip cloud fetch until back online
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
     saveTimerRef.current = setTimeout(() => {
       void saveTreeState(treeId, state)
-    }, 600)
+    }, 400)
     return () => {
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
     }
