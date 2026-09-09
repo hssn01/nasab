@@ -1,6 +1,13 @@
 import { useMemo, useState, useRef, useEffect } from 'react'
-import type { Person } from '../types'
-import { collectFemales, getLineageText, resolveWife } from '../treeUtils'
+import type { Person, Wife } from '../types'
+import {
+  collectFemales,
+  createExternalWife,
+  createTreeWife,
+  resolveWife,
+  wifeShortLabel,
+  getLineageText,
+} from '../treeUtils'
 
 
 
@@ -13,7 +20,7 @@ interface VisualTreeChartProps {
   onRenamePerson?: (personId: string, name: string) => void
   onAddChildrenBatch?: (personId: string, sons: string[], daughters: string[]) => void
   onDeletePerson?: (personId: string) => void
-  onAddWife?: (personId: string, wifeNameOrId: string) => void
+  onAddWife?: (personId: string, wife: Wife) => void
   onRemoveWife?: (personId: string, index: number) => void
 }
 
@@ -198,7 +205,9 @@ export function VisualTreeChart({
   const [editName, setEditName] = useState('')
   const [sonsText, setSonsText] = useState('')
   const [daughtersText, setDaughtersText] = useState('')
-  const [newWifeInput, setNewWifeInput] = useState('')
+  const [newWifeName, setNewWifeName] = useState('')
+  const [newWifeFamily, setNewWifeFamily] = useState('')
+  const [newWifeTribute, setNewWifeTribute] = useState('')
   const [selectedTribeFemaleId, setSelectedTribeFemaleId] = useState('')
   const [deleteConfirm, setDeleteConfirm] = useState(false)
 
@@ -549,9 +558,8 @@ export function VisualTreeChart({
 
                 {node.person.wives && node.person.wives.length > 0 && (
                   <div className="visual-card-wives">
-
-                    {node.person.wives.map((wifeStr, idx) => {
-                      const linkedFemale = resolveWife(wifeStr, root)
+                    {node.person.wives.map((wife, idx) => {
+                      const linkedFemale = resolveWife(wife, root)
                       if (linkedFemale) {
                         return (
                           <span
@@ -573,7 +581,7 @@ export function VisualTreeChart({
                           </span>
                         )
                       }
-                      return <span key={idx}>⚭ {wifeStr}</span>
+                      return <span key={idx}>⚭ {wifeShortLabel(wife, root)}</span>
                     })}
                   </div>
                 )}
@@ -806,8 +814,8 @@ export function VisualTreeChart({
                 <h4 className="modal-section-subtitle">الزوجات الحاليّات:</h4>
                 {actionPerson.wives && actionPerson.wives.length > 0 ? (
                   <ul className="wives-manage-list">
-                    {actionPerson.wives.map((wifeStr, idx) => {
-                      const linked = resolveWife(wifeStr, root)
+                    {actionPerson.wives.map((wife, idx) => {
+                      const linked = resolveWife(wife, root)
                       return (
                         <li key={idx} className="wife-manage-item">
                           <span>
@@ -816,7 +824,7 @@ export function VisualTreeChart({
                                 🔗 {linked.name} ({linked.id})
                               </span>
                             ) : (
-                              `⚭ ${wifeStr}`
+                              `⚭ ${wifeShortLabel(wife, root)}`
                             )}
                           </span>
                           {onRemoveWife && (
@@ -862,7 +870,7 @@ export function VisualTreeChart({
                           (f) => f.id === selectedTribeFemaleId,
                         )
                         if (female && onAddWife) {
-                          onAddWife(actionPerson.id, `${female.id} - ${female.name}`)
+                          onAddWife(actionPerson.id, createTreeWife(female.id))
                           setSelectedTribeFemaleId('')
                         }
                       }}
@@ -873,27 +881,46 @@ export function VisualTreeChart({
                 </div>
 
                 <div className="modal-field" style={{ marginTop: '8px' }}>
-                  <label>أو أدخل اسم زوجة من خارج القبيلة:</label>
-                  <div className="input-row">
+                  <label>أو أدخل زوجة من خارج القبيلة:</label>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                     <input
                       type="text"
                       dir="rtl"
                       placeholder="اسم الزوجة..."
-                      value={newWifeInput}
-                      onChange={(e) => setNewWifeInput(e.target.value)}
+                      value={newWifeName}
+                      onChange={(e) => setNewWifeName(e.target.value)}
+                    />
+                    <input
+                      type="text"
+                      dir="rtl"
+                      placeholder="العائلة أو القبيلة (اختياري)..."
+                      value={newWifeFamily}
+                      onChange={(e) => setNewWifeFamily(e.target.value)}
+                    />
+                    <input
+                      type="text"
+                      dir="rtl"
+                      placeholder="نبذة عن الزوجة (اختياري)..."
+                      value={newWifeTribute}
+                      onChange={(e) => setNewWifeTribute(e.target.value)}
                     />
                     <button
                       type="button"
                       className="primary"
-                      disabled={!newWifeInput.trim()}
+                      disabled={!newWifeName.trim()}
                       onClick={() => {
-                        if (newWifeInput.trim() && onAddWife) {
-                          onAddWife(actionPerson.id, newWifeInput.trim())
-                          setNewWifeInput('')
+                        if (newWifeName.trim() && onAddWife) {
+                          onAddWife(
+                            actionPerson.id,
+                            createExternalWife(newWifeName, newWifeFamily, newWifeTribute),
+                          )
+                          setNewWifeName('')
+                          setNewWifeFamily('')
+                          setNewWifeTribute('')
                         }
                       }}
                     >
-                      إضافة
+                      إضافة زوجة من الخارج
                     </button>
                   </div>
                 </div>

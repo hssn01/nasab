@@ -482,6 +482,12 @@
   color: #94a3b8;
 }
 
+.child-mother-tag {
+  font-size: 10px;
+  color: #64748b;
+  margin-inline-start: 2px;
+}
+
 /* Arrow indicating child has a further record */
 .child-has-record {
   font-size: 10px;

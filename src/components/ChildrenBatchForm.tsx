@@ -6,11 +6,14 @@ interface ChildrenBatchFormProps {
   lineageText: string
   isCurrent: boolean
   canDelete: boolean
+  continueLabel?: string
+  returnToWivesLabel?: string
   onSave: (sons: string[], daughters: string[]) => void
   onSaveAndContinue: (sons: string[], daughters: string[]) => void
   onRename: (name: string) => void
   onDelete: () => void
   onReturnToCurrent: () => void
+  onReturnToWives?: () => void
 }
 
 const LIST_MARKER =
@@ -39,11 +42,14 @@ export function ChildrenBatchForm({
   lineageText,
   isCurrent,
   canDelete,
+  continueLabel = 'حفظ والانتقال للتالي',
+  returnToWivesLabel = 'حفظ والعودة إلى الزوجات',
   onSave,
   onSaveAndContinue,
   onRename,
   onDelete,
   onReturnToCurrent,
+  onReturnToWives,
 }: ChildrenBatchFormProps) {
   const [personName, setPersonName] = useState(person.name)
   const [sonsText, setSonsText] = useState(() => namesOf(person, 'M'))
@@ -97,7 +103,7 @@ export function ChildrenBatchForm({
             dir="rtl"
             value={sonsText}
             onChange={(event) => setSonsText(event.target.value)}
-            placeholder={'محمد\nأحمد\nعبد الله'}
+            placeholder="اسم ابن في كل سطر..."
             rows={12}
             spellCheck
           />
@@ -112,7 +118,7 @@ export function ChildrenBatchForm({
             dir="rtl"
             value={daughtersText}
             onChange={(event) => setDaughtersText(event.target.value)}
-            placeholder={'فاطمة\nخديجة\nمريم'}
+            placeholder="اسم بنت في كل سطر..."
             rows={12}
             spellCheck
           />
@@ -120,7 +126,33 @@ export function ChildrenBatchForm({
       </div>
 
       <div className="batch-actions">
-        {isCurrent ? (
+        {onReturnToWives ? (
+          <>
+            <button
+              type="button"
+              className="primary"
+              onClick={() => {
+                onRename(personName)
+                onSave(sons, daughters)
+                onReturnToWives()
+              }}
+            >
+              {returnToWivesLabel}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                onRename(personName)
+                onSave(sons, daughters)
+              }}
+            >
+              حفظ الأولاد فقط
+            </button>
+            <button type="button" className="ghost" onClick={onReturnToWives}>
+              العودة إلى الزوجات
+            </button>
+          </>
+        ) : isCurrent ? (
           <>
             <button
               type="button"
@@ -130,7 +162,7 @@ export function ChildrenBatchForm({
                 onSaveAndContinue(sons, daughters)
               }}
             >
-              حفظ والانتقال إلى الابن الأول
+              {continueLabel}
             </button>
             <button
               type="button"

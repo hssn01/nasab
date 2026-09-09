@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react'
 import { ChildrenBatchForm } from './components/ChildrenBatchForm'
+import { WivesBatchForm } from './components/WivesBatchForm'
+import { MothersAssignForm } from './components/MothersAssignForm'
 import { PersonEditor } from './components/PersonEditor'
 import { TreeRoot } from './components/TreeView'
 import { VisualTreeChart } from './components/VisualTreeChart'
@@ -10,6 +12,7 @@ import { PrintableTributeView } from './components/PrintableTributeView'
 import { useSessionList } from './hooks/useSessionList'
 import { useSync } from './hooks/useSync'
 import {
+  advanceAfterDone,
   collectMalesDFS,
   countPeople,
   exportOutline,
@@ -600,6 +603,9 @@ function TreeApp({
   } | null>(null)
   const [rootName, setRootName] = useState('')
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [reviewFocus, setReviewFocus] = useState<'children' | 'wives' | 'mothers'>(
+    'children',
+  )
   const [savedId, setSavedId] = useState<string | null>(null)
   const [importMessage, setImportMessage] = useState<string | null>(null)
   const [sidebarWidth, setSidebarWidth] = useState(() => {
@@ -648,9 +654,26 @@ function TreeApp({
 
   const visitedIds = useMemo(() => {
     if (!tree.currentPersonId) return new Set(males.map((male) => male.id))
+
+    if (tree.phase === 'add-wives' && tree.malesQueue.length > 0) {
+      const index = tree.malesQueue.indexOf(tree.currentPersonId)
+      const visitedCount = index >= 0 ? index : tree.currentMaleIndex
+      return new Set(tree.malesQueue.slice(0, Math.max(0, visitedCount)))
+    }
+
     const index = males.findIndex((male) => male.id === tree.currentPersonId)
     return new Set(males.slice(0, Math.max(0, index)).map((male) => male.id))
-  }, [males, tree.currentPersonId])
+  }, [males, tree.currentMaleIndex, tree.currentPersonId, tree.malesQueue, tree.phase])
+
+  const childrenContinueLabel = useMemo(() => {
+    if (!tree.root || !tree.currentPersonId || tree.phase !== 'enter-children') {
+      return undefined
+    }
+    const next = advanceAfterDone(tree.currentPersonId, tree.root)
+    return next === 'phase2'
+      ? 'حفظ والانتقال إلى الزوجات'
+      : 'حفظ والانتقال للتالي'
+  }, [tree.currentPersonId, tree.phase, tree.root])
 
   function showSaved(personId: string) {
     setSavedId(personId)
@@ -736,8 +759,27 @@ function TreeApp({
   }
 
   const isComplete = tree.phase === 'complete'
+  const isWivesPhase = tree.phase === 'add-wives'
+  const isChildrenPhase = tree.phase === 'enter-children'
   const isEditingEarlier =
     selectedId !== null && selectedId !== tree.currentPersonId
+
+  const activeFocus = useMemo(() => {
+    if (isChildrenPhase) {
+      return reviewFocus === 'wives' || reviewFocus === 'mothers' ? reviewFocus : 'children'
+    }
+    if (isWivesPhase) {
+      return reviewFocus === 'children' || reviewFocus === 'mothers' ? reviewFocus : 'wives'
+    }
+    return reviewFocus
+  }, [isChildrenPhase, isWivesPhase, reviewFocus])
+
+  const showWivesForm = activeFocus === 'wives'
+  const showMothersForm = activeFocus === 'mothers'
+
+  const wivesProgressLabel = isWivesPhase
+    ? `${(tree.currentMaleIndex + 1).toLocaleString('ar')} / ${tree.malesQueue.length.toLocaleString('ar')}`
+    : ''
 
   return (
     <div
@@ -784,13 +826,38 @@ function TreeApp({
           </span>
         )}
         <div className="phases" aria-label="مراحل العمل">
-          <span className={`phase${!isComplete ? ' active' : ''}`}>
+          <button
+            type="button"
+            className={`phase-button phase${isChildrenPhase ? ' active' : ''}`}
+            onClick={() => {
+              tree.goToPhase('enter-children')
+              setReviewFocus('children')
+            }}
+            title="الانتقال إلى مرحلة إدخال الأبناء والبنات"
+          >
             ١ · الأبناء والبنات
-          </span>
-          <span className="phase">٢ · الزوجات والأمهات لاحقاً</span>
-          <span className={`phase${isComplete ? ' active' : ''}`}>
+          </button>
+          <button
+            type="button"
+            className={`phase-button phase${isWivesPhase ? ' active' : ''}`}
+            onClick={() => {
+              tree.goToPhase('add-wives')
+              setReviewFocus('wives')
+            }}
+            title="الانتقال إلى مرحلة إدخال الزوجات"
+          >
+            ٢ · الزوجات
+          </button>
+          <button
+            type="button"
+            className={`phase-button phase${isComplete ? ' active' : ''}`}
+            onClick={() => {
+              tree.goToPhase('complete')
+            }}
+            title="الانتقال إلى مرحلة المراجعة"
+          >
             ٣ · المراجعة
-          </span>
+          </button>
         </div>
         <div className="counts">
           <span>{arabicCount(counts.males, 'رجل', 'رجال')}</span>
@@ -807,27 +874,108 @@ function TreeApp({
               </p>
             )}
             {selectedPerson.gender === 'M' ? (
-              <ChildrenBatchForm
-                key={selectedPerson.id}
-                person={selectedPerson}
-                lineageText={lineageText}
-                isCurrent={!isEditingEarlier && !isComplete}
-                canDelete={selectedPerson.id !== tree.root.id}
-                onRename={(name) => tree.renamePerson(selectedPerson.id, name)}
-                onSave={(sons, daughters) => {
-                  tree.setChildren(selectedPerson.id, sons, daughters)
-                  showSaved(selectedPerson.id)
-                }}
-                onSaveAndContinue={(sons, daughters) => {
-                  tree.setChildrenAndContinue(sons, daughters)
-                  setSelectedId(null)
-                }}
-                onDelete={() => {
-                  tree.deletePerson(selectedPerson.id)
-                  setSelectedId(null)
-                }}
-                onReturnToCurrent={() => setSelectedId(null)}
-              />
+              <>
+                <div className="review-focus" role="tablist" aria-label="نوع التعديل">
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={activeFocus === 'children'}
+                    className={`compact-button${activeFocus === 'children' ? ' primary' : ''}`}
+                    onClick={() => setReviewFocus('children')}
+                  >
+                    الأبناء والبنات ({selectedPerson.children.length.toLocaleString('ar')})
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={activeFocus === 'wives'}
+                    className={`compact-button${activeFocus === 'wives' ? ' primary' : ''}`}
+                    onClick={() => setReviewFocus('wives')}
+                  >
+                    الزوجات ({selectedPerson.wives.length.toLocaleString('ar')})
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={activeFocus === 'mothers'}
+                    className={`compact-button${activeFocus === 'mothers' ? ' primary' : ''}`}
+                    onClick={() => setReviewFocus('mothers')}
+                  >
+                    الأمهات
+                  </button>
+                </div>
+                {showWivesForm ? (
+                  <WivesBatchForm
+                    key={`wives-${selectedPerson.id}`}
+                    person={selectedPerson}
+                    root={tree.root}
+                    lineageText={lineageText}
+                    isCurrent={!isEditingEarlier && isWivesPhase}
+                    progressLabel={wivesProgressLabel}
+                    onRename={(name) => tree.renamePerson(selectedPerson.id, name)}
+                    onSave={(wives) => {
+                      tree.setWives(selectedPerson.id, wives)
+                      showSaved(selectedPerson.id)
+                    }}
+                    onSaveAndContinue={(wives) => {
+                      tree.setWivesAndContinue(wives)
+                      setSelectedId(null)
+                    }}
+                    onReturnToCurrent={() => setSelectedId(null)}
+                    onSwitchToChildren={() => setReviewFocus('children')}
+                    onAddDaughter={(fatherId, daughterName) => {
+                      const newId = tree.addChildToPerson(fatherId, daughterName, 'F')
+                      if (newId) {
+                        showSaved(fatherId)
+                      }
+                      return newId
+                    }}
+                  />
+                ) : showMothersForm ? (
+                  <MothersAssignForm
+                    key={`mothers-${selectedPerson.id}-${selectedPerson.wives.map((w) => w.id).join('|')}`}
+                    person={selectedPerson}
+                    root={tree.root}
+                    lineageText={lineageText}
+                    onSave={(assignments) => {
+                      tree.setChildrenMothers(selectedPerson.id, assignments)
+                      showSaved(selectedPerson.id)
+                    }}
+                    onBack={() => setReviewFocus(isWivesPhase ? 'wives' : 'children')}
+                  />
+                ) : (
+                  <ChildrenBatchForm
+                    key={`children-${selectedPerson.id}`}
+                    person={selectedPerson}
+                    lineageText={lineageText}
+                    isCurrent={!isEditingEarlier && isChildrenPhase}
+                    canDelete={selectedPerson.id !== tree.root.id}
+                    continueLabel={childrenContinueLabel}
+                    returnToWivesLabel={isWivesPhase ? 'حفظ والعودة إلى الزوجات' : undefined}
+                    onReturnToWives={isWivesPhase ? () => setReviewFocus('wives') : undefined}
+                    onRename={(name) => tree.renamePerson(selectedPerson.id, name)}
+                    onSave={(sons, daughters) => {
+                      tree.setChildren(selectedPerson.id, sons, daughters)
+                      showSaved(selectedPerson.id)
+                    }}
+                    onSaveAndContinue={(sons, daughters) => {
+                      if (isWivesPhase) {
+                        tree.setChildren(selectedPerson.id, sons, daughters)
+                        showSaved(selectedPerson.id)
+                        setReviewFocus('wives')
+                      } else {
+                        tree.setChildrenAndContinue(sons, daughters)
+                        setSelectedId(null)
+                      }
+                    }}
+                    onDelete={() => {
+                      tree.deletePerson(selectedPerson.id)
+                      setSelectedId(null)
+                    }}
+                    onReturnToCurrent={() => setSelectedId(null)}
+                  />
+                )}
+              </>
             ) : (
               <PersonEditor
                 key={selectedPerson.id}
@@ -846,12 +994,12 @@ function TreeApp({
           </>
         ) : (
           <section className="stage complete-stage">
-            <p className="eyebrow">اكتمل إدخال الأشخاص</p>
+            <p className="eyebrow">اكتمل إدخال الأشخاص والزوجات</p>
             <h2>أصبحت الشجرة جاهزة للمراجعة</h2>
             <p className="lede">
               سُجّل {arabicCount(counts.males, 'رجل', 'رجال')} و
               {arabicCount(counts.females, 'امرأة', 'نساء')}. اختر أي رجل من
-              الشجرة لتعديل أبنائه وبناته.
+              الشجرة لتعديل أبنائه أو زوجاته أو أمهاتهم.
             </p>
             <div className="actions">
               <button
@@ -860,6 +1008,15 @@ function TreeApp({
                 title="عرض وطباعة وثيقة ومشجر النسب"
               >
                 🖨️ طباعة وثيقة النسب
+              </button>
+              <button
+                onClick={() => {
+                  setReviewFocus('wives')
+                  tree.startWivesPhase()
+                  setSelectedId(null)
+                }}
+              >
+                مراجعة الزوجات رجلاً برجُل
               </button>
               <button
                 onClick={() =>
@@ -961,7 +1118,13 @@ function TreeApp({
             </span>
           )}
         </div>
-        <p className="tree-help">اختر أي رجل لمراجعة أبنائه وبناته.</p>
+        <p className="tree-help">
+          {isWivesPhase
+            ? 'اختر أي رجل لمراجعة زوجاته أو تعديلها.'
+            : isComplete
+              ? 'اختر أي رجل لمراجعة أبنائه أو زوجاته أو أمهاتهم.'
+              : 'اختر أي رجل لمراجعة أبنائه وبناته.'}
+        </p>
         <TreeRoot
           person={tree.root}
           currentId={tree.currentPersonId}

@@ -1,11 +1,31 @@
 export type Gender = 'M' | 'F'
 
+/** Wife from the same tree — linked by female person id. */
+export interface TreeWife {
+  id: string
+  type: 'tree'
+  personId: string
+}
+
+/** Wife from outside the tree — free-text archival fields. */
+export interface ExternalWife {
+  id: string
+  type: 'external'
+  name: string
+  family: string
+  tribute: string
+}
+
+export type Wife = TreeWife | ExternalWife
+
 export interface Person {
   id: string
   name: string
   gender: Gender
   children: Person[]
-  wives: string[]
+  wives: Wife[]
+  /** Mother key — usually a Wife.id of the father; may be a legacy name string. */
+  mother?: string | null
 }
 
 export type Phase = 'setup' | 'enter-children' | 'add-wives' | 'complete'
@@ -45,8 +65,8 @@ export interface DbPerson {
   name: string
   gender: Gender
   children: Person[]
-  wives: string[]
+  wives: Wife[]
+  mother?: string | null
   updated_at: string
   synced?: boolean
 }
-

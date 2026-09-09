@@ -1,12 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { Gender, Person, TreeState } from './types'
+import type { Gender, Person, Phase, TreeState, Wife } from './types'
 import {
   advanceAfterDone,
   collectMalesDFS,
   findParent,
   findPerson,
+  findWifeByMotherKey,
+  isWife,
   nextFemaleId,
   nextMaleId,
+  normalizePersonTree,
 } from './treeUtils'
 import {
   fetchTreeState,
@@ -32,6 +35,11 @@ function cloneRoot(root: Person): Person {
 function isPerson(value: unknown): value is Person {
   if (!value || typeof value !== 'object') return false
   const person = value as Partial<Person>
+  const motherOk =
+    person.mother === undefined ||
+    person.mother === null ||
+    typeof person.mother === 'string' ||
+    (typeof person.mother === 'object' && person.mother !== null)
   return (
     typeof person.id === 'string' &&
     /^[MF]\d{3,}$/.test(person.id) &&
@@ -41,8 +49,16 @@ function isPerson(value: unknown): value is Person {
     Array.isArray(person.children) &&
     person.children.every(isPerson) &&
     Array.isArray(person.wives) &&
-    person.wives.every((wife) => typeof wife === 'string')
+    person.wives.every(
+      (wife) => typeof wife === 'string' || isWife(wife),
+    ) &&
+    motherOk
   )
+}
+
+function hydrateState(state: TreeState): TreeState {
+  if (!state.root) return state
+  return { ...state, root: normalizePersonTree(state.root) }
 }
 
 function countersFor(root: Person) {
@@ -66,7 +82,8 @@ function countersFor(root: Person) {
 export function useTreeBuilder(treeId: string) {
   // Load from local cache immediately for instant UI, then sync from cloud
   const [state, setState] = useState<TreeState>(() => {
-    return getCachedState(treeId) ?? initialState
+    const cached = getCachedState(treeId)
+    return cached ? hydrateState(cached) : initialState
   })
   const [isSyncing, setIsSyncing] = useState(false)
 
@@ -75,6 +92,8 @@ export function useTreeBuilder(treeId: string) {
   const hasLoadedRef = useRef(false)
 
   const [isOffline, setIsOffline] = useState(!navigator.onLine)
+  const stateRef = useRef(state)
+  stateRef.current = state
 
   // Track online/offline status and auto-sync when connection returns
   useEffect(() => {
@@ -103,13 +122,14 @@ export function useTreeBuilder(treeId: string) {
 
     // Reset local state to cache (or empty) for the new treeId
     const cached = getCachedState(treeId)
-    setState(cached ?? initialState)
+    setState(cached ? hydrateState(cached) : initialState)
 
     fetchTreeState(treeId)
       .then((cloudState) => {
         if (cloudState) {
-          setState(cloudState)
-          setCachedState(treeId, cloudState)
+          const hydrated = hydrateState(cloudState)
+          setState(hydrated)
+          setCachedState(treeId, hydrated)
         }
       })
       .catch(() => {
@@ -194,6 +214,54 @@ export function useTreeBuilder(treeId: string) {
     [state.root, state.currentPersonId],
   )
 
+  const addChildToPerson = useCallback(
+    (parentId: string, name: string, gender: Gender): string | null => {
+      const trimmed = name.trim()
+      const current = stateRef.current
+      if (!current.root || !parentId || !trimmed) return null
+
+      const newId =
+        gender === 'M'
+          ? nextMaleId(current.maleCounter)
+          : nextFemaleId(current.femaleCounter + 1)
+
+      setState((prev) => {
+        if (!prev.root) return prev
+        const root = cloneRoot(prev.root)
+        const parent = findPerson(root, parentId)
+        if (!parent) return prev
+
+        parent.children.push({
+          id: newId,
+          name: trimmed,
+          gender,
+          children: [],
+          wives: [],
+        })
+
+        const males = collectMalesDFS(root)
+        const malesQueue = males.map((m) => m.id)
+        let currentMaleIndex = prev.currentMaleIndex
+        if (prev.currentPersonId && malesQueue.includes(prev.currentPersonId)) {
+          currentMaleIndex = malesQueue.indexOf(prev.currentPersonId)
+        }
+
+        return {
+          ...prev,
+          root,
+          maleCounter: gender === 'M' ? prev.maleCounter + 1 : prev.maleCounter,
+          femaleCounter:
+            gender === 'F' ? prev.femaleCounter + 1 : prev.femaleCounter,
+          malesQueue,
+          currentMaleIndex,
+        }
+      })
+
+      return newId
+    },
+    [],
+  )
+
   function replaceChildren(
     prev: TreeState,
     personId: string,
@@ -268,7 +336,17 @@ export function useTreeBuilder(treeId: string) {
     const daughters = reconcile(daughterNames, existingDaughters, 'F')
 
     parent.children = [...sons, ...daughters]
-    return { ...prev, root, maleCounter, femaleCounter }
+
+    const males = collectMalesDFS(root)
+    const malesQueue = males.map((m) => m.id)
+    let currentMaleIndex = prev.currentMaleIndex
+    if (prev.currentPersonId && malesQueue.includes(prev.currentPersonId)) {
+      currentMaleIndex = malesQueue.indexOf(prev.currentPersonId)
+    } else {
+      currentMaleIndex = Math.min(currentMaleIndex, Math.max(0, malesQueue.length - 1))
+    }
+
+    return { ...prev, root, maleCounter, femaleCounter, malesQueue, currentMaleIndex }
   }
 
   const setChildren = useCallback(
@@ -295,13 +373,7 @@ export function useTreeBuilder(treeId: string) {
 
         const next = advanceAfterDone(updated.currentPersonId, updated.root)
         if (next === 'phase2') {
-          const males = collectMalesDFS(updated.root)
-          return {
-            ...updated,
-            phase: 'complete',
-            currentPersonId: null,
-            malesQueue: males.map((male) => male.id),
-          }
+          return beginWivesPhase(updated)
         }
 
         return { ...updated, currentPersonId: next.id }
@@ -309,6 +381,181 @@ export function useTreeBuilder(treeId: string) {
     },
     [],
   )
+
+  function beginWivesPhase(prev: TreeState): TreeState {
+    if (!prev.root) return { ...prev, phase: 'complete', currentPersonId: null }
+    const males = collectMalesDFS(prev.root)
+    if (males.length === 0) {
+      return {
+        ...prev,
+        phase: 'complete',
+        currentPersonId: null,
+        malesQueue: [],
+        currentMaleIndex: 0,
+      }
+    }
+    return {
+      ...prev,
+      phase: 'add-wives',
+      currentPersonId: males[0].id,
+      malesQueue: males.map((male) => male.id),
+      currentMaleIndex: 0,
+    }
+  }
+
+  function replaceWives(
+    prev: TreeState,
+    personId: string,
+    wives: Wife[],
+  ): TreeState {
+    if (!prev.root) return prev
+    const root = cloneRoot(prev.root)
+    const person = findPerson(root, personId)
+    if (!person || person.gender !== 'M') return prev
+
+    const oldWives = [...person.wives]
+    person.wives = wives
+
+    for (const child of person.children) {
+      if (!child.mother) {
+        if (wives.length === 1) child.mother = wives[0].id
+        continue
+      }
+
+      const matchedOld = findWifeByMotherKey(
+        { ...person, wives: oldWives },
+        child.mother,
+      )
+      if (matchedOld) {
+        const oldIndex = oldWives.findIndex((wife) => wife.id === matchedOld.id)
+        if (oldIndex >= 0 && oldIndex < wives.length) {
+          child.mother = wives[oldIndex].id
+          continue
+        }
+      }
+
+      const stillPresent = wives.some((wife) => wife.id === child.mother)
+      if (!stillPresent) {
+        child.mother = wives.length === 1 ? wives[0].id : null
+      }
+    }
+
+    if (wives.length === 1) {
+      for (const child of person.children) {
+        if (!child.mother) child.mother = wives[0].id
+      }
+    }
+
+    return { ...prev, root }
+  }
+
+  const setWives = useCallback((personId: string, wives: Wife[]) => {
+    setState((prev) => replaceWives(prev, personId, wives))
+  }, [])
+
+  const setWivesAndContinue = useCallback((wives: Wife[]) => {
+    setState((prev) => {
+      if (!prev.root || !prev.currentPersonId) return prev
+      const updated = replaceWives(prev, prev.currentPersonId, wives)
+      const queueIndex = updated.malesQueue.indexOf(updated.currentPersonId!)
+      const nextIndex =
+        (queueIndex >= 0 ? queueIndex : updated.currentMaleIndex) + 1
+      if (nextIndex >= updated.malesQueue.length) {
+        return { ...updated, phase: 'complete', currentPersonId: null }
+      }
+      return {
+        ...updated,
+        currentMaleIndex: nextIndex,
+        currentPersonId: updated.malesQueue[nextIndex],
+      }
+    })
+  }, [])
+
+  const setChildMother = useCallback(
+    (childId: string, mother: string | null) => {
+      setState((prev) => {
+        if (!prev.root) return prev
+        const root = cloneRoot(prev.root)
+        const child = findPerson(root, childId)
+        if (!child) return prev
+        child.mother = mother?.trim() || null
+        return { ...prev, root }
+      })
+    },
+    [],
+  )
+
+  const setChildrenMothers = useCallback(
+    (fatherId: string, assignments: Record<string, string | null>) => {
+      setState((prev) => {
+        if (!prev.root) return prev
+        const root = cloneRoot(prev.root)
+        const father = findPerson(root, fatherId)
+        if (!father || father.gender !== 'M') return prev
+        for (const child of father.children) {
+          if (Object.prototype.hasOwnProperty.call(assignments, child.id)) {
+            const value = assignments[child.id]
+            child.mother = value?.trim() || null
+          }
+        }
+        return { ...prev, root }
+      })
+    },
+    [],
+  )
+
+  const startWivesPhase = useCallback(() => {
+    setState((prev) => beginWivesPhase(prev))
+  }, [])
+
+  const goToPhase = useCallback((targetPhase: Phase) => {
+    setState((prev) => {
+      if (!prev.root) return prev
+      if (targetPhase === 'enter-children') {
+        return {
+          ...prev,
+          phase: 'enter-children',
+          currentPersonId: prev.currentPersonId ?? prev.root.id,
+        }
+      }
+      if (targetPhase === 'add-wives') {
+        const males = collectMalesDFS(prev.root)
+        const malesQueue = males.map((m) => m.id)
+        if (malesQueue.length === 0) {
+          return {
+            ...prev,
+            phase: 'complete',
+            currentPersonId: null,
+            malesQueue: [],
+            currentMaleIndex: 0,
+          }
+        }
+        let currentMaleIndex = prev.currentMaleIndex
+        let currentPersonId = prev.currentPersonId
+        if (!currentPersonId || !malesQueue.includes(currentPersonId)) {
+          currentMaleIndex = Math.min(Math.max(0, currentMaleIndex), malesQueue.length - 1)
+          currentPersonId = malesQueue[currentMaleIndex]
+        } else {
+          currentMaleIndex = malesQueue.indexOf(currentPersonId)
+        }
+        return {
+          ...prev,
+          phase: 'add-wives',
+          currentPersonId,
+          malesQueue,
+          currentMaleIndex,
+        }
+      }
+      if (targetPhase === 'complete') {
+        return {
+          ...prev,
+          phase: 'complete',
+          currentPersonId: null,
+        }
+      }
+      return prev
+    })
+  }, [])
 
   const renamePerson = useCallback((personId: string, name: string) => {
     const cleanName = name.trim()
@@ -338,11 +585,50 @@ export function useTreeBuilder(treeId: string) {
         !!prev.currentPersonId &&
         !!findPerson(target, prev.currentPersonId)
       const males = collectMalesDFS(root)
+      const malesQueue = males.map((male) => male.id)
+
+      if (prev.phase === 'add-wives') {
+        let currentPersonId = prev.currentPersonId
+        let currentMaleIndex = prev.currentMaleIndex
+
+        if (
+          currentWasDeleted ||
+          !currentPersonId ||
+          !malesQueue.includes(currentPersonId)
+        ) {
+          if (malesQueue.length === 0) {
+            return {
+              ...prev,
+              root,
+              phase: 'complete',
+              currentPersonId: null,
+              malesQueue,
+              currentMaleIndex: 0,
+            }
+          }
+          currentMaleIndex = Math.min(
+            prev.currentMaleIndex,
+            malesQueue.length - 1,
+          )
+          currentPersonId = malesQueue[currentMaleIndex]
+        } else {
+          currentMaleIndex = malesQueue.indexOf(currentPersonId)
+        }
+
+        return {
+          ...prev,
+          root,
+          currentPersonId,
+          malesQueue,
+          currentMaleIndex,
+        }
+      }
+
       return {
         ...prev,
         root,
         currentPersonId: currentWasDeleted ? parent.id : prev.currentPersonId,
-        malesQueue: males.map((male) => male.id),
+        malesQueue,
       }
     })
   }, [])
@@ -375,14 +661,7 @@ export function useTreeBuilder(treeId: string) {
     const next = advanceAfterDone(state.currentPersonId, state.root)
 
     if (next === 'phase2') {
-      const males = collectMalesDFS(state.root)
-      setState((prev) => ({
-        ...prev,
-        phase: 'add-wives',
-        currentPersonId: males[0]?.id ?? null,
-        malesQueue: males.map((m) => m.id),
-        currentMaleIndex: 0,
-      }))
+      setState((prev) => beginWivesPhase(prev))
     } else {
       setState((prev) => ({
         ...prev,
@@ -391,22 +670,30 @@ export function useTreeBuilder(treeId: string) {
     }
   }, [state.root, state.currentPersonId])
 
-  const addWifeToPerson = useCallback(
-    (personId: string, name: string) => {
-      const clean = name.trim()
-      if (!clean) return
+  const addWifeToPerson = useCallback((personId: string, wife: Wife) => {
+    setState((prev) => {
+      if (!prev.root) return prev
+      const root = cloneRoot(prev.root)
+      const person = findPerson(root, personId)
+      if (!person || person.gender !== 'M') return prev
 
-      setState((prev) => {
-        if (!prev.root) return prev
-        const root = cloneRoot(prev.root)
-        const person = findPerson(root, personId)
-        if (!person) return prev
-        person.wives.push(clean)
-        return { ...prev, root }
-      })
-    },
-    [],
-  )
+      if (wife.type === 'tree') {
+        const alreadyLinked = person.wives.some(
+          (existing) =>
+            existing.type === 'tree' && existing.personId === wife.personId,
+        )
+        if (alreadyLinked) return prev
+      }
+
+      person.wives.push(wife)
+      if (person.wives.length === 1) {
+        for (const child of person.children) {
+          if (!child.mother) child.mother = wife.id
+        }
+      }
+      return { ...prev, root }
+    })
+  }, [])
 
   const removeWifeFromPerson = useCallback(
     (personId: string, index: number) => {
@@ -415,7 +702,13 @@ export function useTreeBuilder(treeId: string) {
         const root = cloneRoot(prev.root)
         const person = findPerson(root, personId)
         if (!person || index < 0 || index >= person.wives.length) return prev
-        person.wives.splice(index, 1)
+        const [removed] = person.wives.splice(index, 1)
+        for (const child of person.children) {
+          if (child.mother === removed.id) {
+            child.mother =
+              person.wives.length === 1 ? person.wives[0].id : null
+          }
+        }
         return { ...prev, root }
       })
     },
@@ -423,9 +716,9 @@ export function useTreeBuilder(treeId: string) {
   )
 
   const addWife = useCallback(
-    (name: string) => {
-      if (!state.root || !state.currentPersonId || !name.trim()) return
-      addWifeToPerson(state.currentPersonId, name)
+    (wife: Wife) => {
+      if (!state.root || !state.currentPersonId) return
+      addWifeToPerson(state.currentPersonId, wife)
     },
     [state.root, state.currentPersonId, addWifeToPerson],
   )
@@ -474,31 +767,48 @@ export function useTreeBuilder(treeId: string) {
     ) as Partial<TreeState>
     if (!isPerson(imported.root)) return false
 
-    const counters = countersFor(imported.root)
-    const males = collectMalesDFS(imported.root)
+    const root = normalizePersonTree(imported.root)
+    const counters = countersFor(root)
+    const males = collectMalesDFS(root)
     const currentId =
       typeof imported.currentPersonId === 'string' &&
-      findPerson(imported.root, imported.currentPersonId)
+      findPerson(root, imported.currentPersonId)
         ? imported.currentPersonId
-        : imported.root.id
+        : root.id
+
+    const phase =
+      imported.phase === 'complete' ||
+      imported.phase === 'add-wives' ||
+      imported.phase === 'enter-children' ||
+      imported.phase === 'setup'
+        ? imported.phase
+        : 'enter-children'
+
+    const malesQueue = Array.isArray(imported.malesQueue)
+      ? imported.malesQueue
+      : males.map((male) => male.id)
+
+    const currentMaleIndex =
+      typeof imported.currentMaleIndex === 'number'
+        ? imported.currentMaleIndex
+        : 0
 
     setState({
-      root: imported.root,
-      phase: imported.phase === 'complete' ? 'complete' : 'enter-children',
+      root,
+      phase,
       currentPersonId:
-        imported.phase === 'complete' ? null : currentId,
+        phase === 'complete'
+          ? null
+          : phase === 'add-wives'
+            ? (malesQueue[currentMaleIndex] ?? males[0]?.id ?? null)
+            : currentId,
       maleCounter: Math.max(imported.maleCounter ?? 0, counters.maleCounter),
       femaleCounter: Math.max(
         imported.femaleCounter ?? 0,
         counters.femaleCounter,
       ),
-      malesQueue: Array.isArray(imported.malesQueue)
-        ? imported.malesQueue
-        : males.map((male) => male.id),
-      currentMaleIndex:
-        typeof imported.currentMaleIndex === 'number'
-          ? imported.currentMaleIndex
-          : 0,
+      malesQueue,
+      currentMaleIndex,
     })
     return true
   }, [])
@@ -516,6 +826,7 @@ export function useTreeBuilder(treeId: string) {
     startRoot,
 
     addChild,
+    addChildToPerson,
     setChildren,
     setChildrenAndContinue,
     renamePerson,
@@ -526,6 +837,12 @@ export function useTreeBuilder(treeId: string) {
     removeWife,
     addWifeToPerson,
     removeWifeFromPerson,
+    setWives,
+    setWivesAndContinue,
+    setChildMother,
+    setChildrenMothers,
+    startWivesPhase,
+    goToPhase,
     finishWives,
     exportProject,
     importProject,

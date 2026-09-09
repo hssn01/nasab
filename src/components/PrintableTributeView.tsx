@@ -1,6 +1,11 @@
 import { useState, useMemo } from 'react'
-import type { Person } from '../types'
-import { countPeople, resolveWife } from '../treeUtils'
+import type { Person, Wife } from '../types'
+import {
+  countPeople,
+  motherDisplayLabel,
+  resolveWife,
+  wifeShortLabel,
+} from '../treeUtils'
 import '../PrintableTribute.css'
 
 interface PrintableTributeViewProps {
@@ -16,7 +21,7 @@ interface FamilyEntry {
   lineage: Person[]   // ancestors from root down to this person (inclusive)
   sons: Person[]
   daughters: Person[]
-  wives: string[]
+  wives: Wife[]
   hasDescendants: boolean
 }
 
@@ -366,11 +371,26 @@ function FamilyEntryCard({
       {showWives && wives.length > 0 && (
         <div className="entry-wives-row">
           <span className="entry-wives-label">الزوجات:</span>
-          {wives.map((w, idx) => {
-            const linked = resolveWife(w, root)
+          {wives.map((wife) => {
+            const linked = resolveWife(wife, root)
+            const label = wifeShortLabel(wife, root)
+            const detail =
+              wife.type === 'external'
+                ? [wife.family, wife.tribute].filter(Boolean).join(' · ')
+                : ''
             return (
-              <span key={idx} className="entry-wife-chip">
-                ⚭ {linked ? `${linked.name}${showIds ? ` (${linked.id})` : ''}` : w}
+              <span
+                key={wife.id}
+                className="entry-wife-chip"
+                title={detail || undefined}
+              >
+                ⚭{' '}
+                {linked
+                  ? `${linked.name}${showIds ? ` (${linked.id})` : ''}`
+                  : label}
+                {wife.type === 'external' && wife.family
+                  ? ` · ${wife.family}`
+                  : ''}
               </span>
             )
           })}
@@ -392,6 +412,14 @@ function FamilyEntryCard({
                     <span className="child-ordinal">{(i + 1).toLocaleString('ar')}.</span>
                     {s.name}
                     {showIds && <span className="entry-id-tag">{s.id}</span>}
+                    {showWives && s.mother && (
+                      <span
+                        className="child-mother-tag"
+                        title={`الأم: ${motherDisplayLabel(s, person, root)}`}
+                      >
+                        أم: {motherDisplayLabel(s, person, root)}
+                      </span>
+                    )}
                     {(s.children.length > 0 || s.wives.length > 0) && (
                       <span className="child-has-record" title="له سجل في الصفحات التالية">↓</span>
                     )}
@@ -410,6 +438,14 @@ function FamilyEntryCard({
                     <span className="child-ordinal">{(i + 1).toLocaleString('ar')}.</span>
                     {d.name}
                     {showIds && <span className="entry-id-tag">{d.id}</span>}
+                    {showWives && d.mother && (
+                      <span
+                        className="child-mother-tag"
+                        title={`الأم: ${motherDisplayLabel(d, person, root)}`}
+                      >
+                        أم: {motherDisplayLabel(d, person, root)}
+                      </span>
+                    )}
                   </span>
                 ))}
               </span>
@@ -475,11 +511,10 @@ function OutlineNode({
         {showIds && <span className="outline-id">{node.person.id}</span>}
         {showWives && isMale && node.person.wives && node.person.wives.length > 0 && (
           <span className="outline-wives">
-            {node.person.wives.map((w, i) => {
-              const linked = resolveWife(w, root)
+            {node.person.wives.map((wife) => {
               return (
-                <span key={i} className="outline-wife">
-                  ⚭ {linked ? linked.name : w}
+                <span key={wife.id} className="outline-wife">
+                  ⚭ {wifeShortLabel(wife, root)}
                 </span>
               )
             })}

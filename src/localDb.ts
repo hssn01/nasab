@@ -101,6 +101,7 @@ export function extractPersons(root: Person | null, sessionId: string, updatedAt
       gender: person.gender,
       children: person.children,
       wives: person.wives || [],
+      mother: typeof person.mother === 'string' ? person.mother : null,
       updated_at: updatedAt,
       synced: true,
     })

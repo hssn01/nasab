@@ -1,6 +1,11 @@
 import { useMemo, useState } from 'react'
 import type { Person } from '../types'
-import { resolveWife } from '../treeUtils'
+import {
+  findParent,
+  motherDisplayLabel,
+  resolveWife,
+  wifeShortLabel,
+} from '../treeUtils'
 
 interface TreeRootProps {
   person: Person
@@ -62,6 +67,13 @@ function TreeNode({
     visitedIds !== undefined &&
     person.gender === 'M' &&
     !visitedIds.has(person.id)
+  const motherLabel = person.mother
+    ? motherDisplayLabel(
+        person,
+        findParent(rootPerson, person.id),
+        rootPerson,
+      )
+    : ''
 
   return (
     <li className="node" role="treeitem" aria-expanded={hasChildren ? expanded : undefined}>
@@ -98,14 +110,20 @@ function TreeNode({
             {person.name}
           </span>
 
+          {motherLabel && (
+            <span className="node-mother" title={`الأم: ${motherLabel}`}>
+              أمّه: {motherLabel}
+            </span>
+          )}
+
           {person.wives && person.wives.length > 0 && (
             <span className="node-wives-list">
-              {person.wives.map((w, idx) => {
-                const linked = resolveWife(w, rootPerson)
+              {person.wives.map((wife) => {
+                const linked = resolveWife(wife, rootPerson)
                 if (linked) {
                   return (
                     <span
-                      key={idx}
+                      key={wife.id}
                       className="wife-link-tag"
                       onClick={(e) => {
                         e.stopPropagation()
@@ -117,7 +135,15 @@ function TreeNode({
                     </span>
                   )
                 }
-                return <span key={idx} className="wife-text">⚭ {w}</span>
+                return (
+                  <span key={wife.id} className="wife-text" title={
+                    wife.type === 'external'
+                      ? [wife.name, wife.family, wife.tribute].filter(Boolean).join(' · ')
+                      : undefined
+                  }>
+                    ⚭ {wifeShortLabel(wife, rootPerson)}
+                  </span>
+                )
               })}
             </span>
           )}
