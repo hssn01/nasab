@@ -6,11 +6,13 @@ import { MothersAssignForm } from './components/MothersAssignForm'
 import { PersonEditor } from './components/PersonEditor'
 import { TreeRoot } from './components/TreeView'
 import { VisualTreeChart } from './components/VisualTreeChart'
-import { RelationshipModal } from './components/RelationshipModal'
 import { PrintableTributeView } from './components/PrintableTributeView'
+import { PublicViewerPortal } from './components/PublicViewerPortal'
+import { LinkTreeModal } from './components/LinkTreeModal'
 
 import { useSessionList } from './hooks/useSessionList'
 import { useSync } from './hooks/useSync'
+import { useUnifiedTree } from './hooks/useUnifiedTree'
 import {
   advanceAfterDone,
   collectMalesDFS,
@@ -22,9 +24,10 @@ import {
 import { useTreeBuilder, initialState } from './useTreeBuilder'
 import {
   createTree,
+  updateTreeLink,
 } from './db'
 import { isConfigured } from './lib/supabase'
-import type { TreeState } from './types'
+import type { Person, TreeLink, TreeMeta, TreeState } from './types'
 import './App.css'
 
 // ── Utilities ────────────────────────────────────────────────────────────────
@@ -51,12 +54,12 @@ function formatDate(iso: string) {
   }).format(new Date(iso))
 }
 
-function getUrlParams(): { treeId: string | null; view: 'editor' | 'chart' | 'print' } {
+function getUrlParams(): { treeId: string | null; view: 'editor' | 'chart' | 'print' | 'viewer' } {
   const params = new URLSearchParams(window.location.search)
   const v = params.get('view')
   return {
     treeId: params.get('t'),
-    view: v === 'chart' ? 'chart' : v === 'print' ? 'print' : 'editor',
+    view: v === 'viewer' ? 'viewer' : v === 'chart' ? 'chart' : v === 'print' ? 'print' : 'editor',
   }
 }
 
@@ -70,6 +73,10 @@ export default function App() {
     window.addEventListener('popstate', handler)
     return () => window.removeEventListener('popstate', handler)
   }, [])
+
+  if (route.view === 'viewer' || window.location.pathname.endsWith('/viewer')) {
+    return <PublicViewerPortal initialTreeId={route.treeId} />
+  }
 
   function navigate(id: string | null, view: 'editor' | 'chart' | 'print' = 'editor') {
     let url = window.location.pathname
@@ -101,6 +108,7 @@ export default function App() {
         treeId={route.treeId}
         onGoToEditor={() => navigate(route.treeId, 'editor')}
         onGoToChart={() => navigate(route.treeId, 'chart')}
+        onOpenTree={(id) => navigate(id, 'print')}
         onGoHome={() => navigate(null)}
       />
     )
@@ -111,6 +119,7 @@ export default function App() {
       treeId={route.treeId}
       onOpenChart={() => navigate(route.treeId, 'chart')}
       onOpenPrint={() => navigate(route.treeId, 'print')}
+      onOpenTree={(id) => navigate(id, 'editor')}
       onGoHome={() => navigate(null)}
     />
   )
@@ -137,6 +146,8 @@ function HomeScreen({ onNavigate }: { onNavigate: (id: string) => void }) {
   const [migratingState, setMigratingState] = useState<TreeState | null>(null)
   const [migrating, setMigrating] = useState(false)
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
+  const [isLinkModalOpen, setIsLinkModalOpen] = useState(false)
+  const [linkModalTargetTree, setLinkModalTargetTree] = useState<TreeMeta | null>(null)
 
   useEffect(() => {
     // Check for old localStorage data to migrate
@@ -160,6 +171,27 @@ function HomeScreen({ onNavigate }: { onNavigate: (id: string) => void }) {
     }
   }
 
+  async function handleCreateLinkedTree(name: string, state: TreeState, link: TreeLink) {
+    setCreating(true)
+    const id = await createTree(name, state, link)
+    setCreating(false)
+    if (id) {
+      await refresh()
+      onNavigate(id)
+    }
+    return id
+  }
+
+  async function handleLinkExistingTree(treeId: string, link: TreeLink | null) {
+    await updateTreeLink(treeId, link)
+    await refresh()
+  }
+
+  function openLinkModal(tree?: TreeMeta) {
+    setLinkModalTargetTree(tree || null)
+    setIsLinkModalOpen(true)
+  }
+
   async function handleMigrate() {
     if (!migratingState) return
     setMigrating(true)
@@ -176,6 +208,14 @@ function HomeScreen({ onNavigate }: { onNavigate: (id: string) => void }) {
     await deleteSession(id)
     setDeleteConfirm(null)
   }
+
+  const mainTrees = useMemo(() => sessions.filter((s) => !s.linkedFrom), [sessions])
+  const linkedTrees = useMemo(() => sessions.filter((s) => !!s.linkedFrom), [sessions])
+  const mainTreeIds = useMemo(() => new Set(mainTrees.map((m) => m.id)), [mainTrees])
+  const orphanLinkedTrees = useMemo(
+    () => linkedTrees.filter((b) => !mainTreeIds.has(b.linkedFrom!.mainTreeId)),
+    [linkedTrees, mainTreeIds]
+  )
 
   // If Supabase is not configured yet, show setup instructions
   if (!isConfigured) {
@@ -291,12 +331,27 @@ create trigger trees_updated_at
               </button>
             )}
             <button
+              className="compact-button"
+              onClick={() => window.open('?view=viewer', '_blank')}
+              title="فتح بوابة الزوار العامة المخصصة للقراءة والطباعة فقط دون إمكانية التعديل"
+              style={{ color: 'var(--accent)', borderColor: 'var(--accent)' }}
+            >
+              👁️ بوابة الزوار (للقراءة فقط)
+            </button>
+            <button
+              className="compact-button link-header-action-btn"
+              onClick={() => openLinkModal()}
+              title="إضافة فرع عائلي مرتبط (بنت / أخ) أو ربط شجرة قائمة"
+            >
+              🔗 + إضافة فرع مرتبط
+            </button>
+            <button
               id="btn-create-tree"
               className="primary"
               onClick={() => void handleCreate()}
               disabled={creating}
             >
-              {creating ? 'جارٍ الإنشاء…' : '+ شجرة جديدة'}
+              {creating ? 'جارٍ الإنشاء…' : '+ شجرة رئيسية'}
             </button>
           </div>
         </div>
@@ -318,100 +373,291 @@ create trigger trees_updated_at
             ) : (
               <>
                 <p className="home-empty-title">لا توجد أشجار بعد</p>
-                <p className="home-empty-sub">ابدأ بإنشاء شجرة جديدة لبناء وتوثيق أنساب العائلة.</p>
+                <p className="home-empty-sub">ابدأ بإنشاء شجرة رئيسية لبناء وتوثيق أنساب العائلة، ثم أضف الأفرع المرتبطة.</p>
               </>
             )}
           </div>
         ) : (
           <ul className="tree-list" role="list">
-            {sessions.map((session) => {
+            {mainTrees.map((session) => {
               const isDownloaded = session.downloaded === true
               const isDownloading = downloadingId === session.id
+              const branches = linkedTrees.filter((b) => b.linkedFrom?.mainTreeId === session.id)
 
               return (
-                <li key={session.id} className="tree-list-item">
-                  <div className="tree-list-info">
-                    <div className="tree-list-title-row">
-                      <p className="tree-list-name">{session.name}</p>
-                      {session.rootAncestor && session.rootAncestor !== session.name && (
-                        <span className="session-root-tag" title="الجد الأساسي">
-                          الأصل: {session.rootAncestor}
+                <li key={session.id} className="tree-list-item main-tree-item">
+                  <div className="tree-list-main-card">
+                    <div className="tree-list-info">
+                      <div className="tree-list-title-row">
+                        <p className="tree-list-name">{session.name}</p>
+                        {session.rootAncestor && session.rootAncestor !== session.name && (
+                          <span className="session-root-tag" title="الجد الأساسي">
+                            الأصل: {session.rootAncestor}
+                          </span>
+                        )}
+                        {branches.length > 0 && (
+                          <span className="session-branches-count-badge">
+                            🌿 {branches.length} {branches.length === 1 ? 'فرع مرتبط' : 'أفرع مرتبطة'}
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="tree-list-meta-row">
+                        <span className="tree-list-date">
+                          🕒 آخر تعديل: {formatDate(session.updated_at)}
                         </span>
-                      )}
+
+                        {isDownloaded ? (
+                          <span
+                            className="session-badge downloaded"
+                            title="هذه الشجرة محملة على هذا الجهاز ومتاحة للاستخدام بدون إنترنت"
+                          >
+                            ✓ متاح بدون إنترنت
+                          </span>
+                        ) : (
+                          <span
+                            className="session-badge cloud-only"
+                            title="موجودة في السحابة فقط — حمّلها لتتمكن من فتحها بدون اتصال"
+                          >
+                            ☁ في السحابة
+                          </span>
+                        )}
+                      </div>
                     </div>
 
-                    <div className="tree-list-meta-row">
-                      <span className="tree-list-date">
-                        🕒 آخر تعديل: {formatDate(session.updated_at)}
-                      </span>
-
-                      {isDownloaded ? (
-                        <span
-                          className="session-badge downloaded"
-                          title="هذه الشجرة محملة على هذا الجهاز ومتاحة للاستخدام بدون إنترنت"
+                    <div className="tree-list-actions">
+                      {!isOffline && !isDownloaded && (
+                        <button
+                          className="compact-button download-action-btn"
+                          onClick={() => void downloadSession(session.id)}
+                          disabled={isDownloading}
+                          title="تحميل الشجرة للعمل بدون إنترنت"
                         >
-                          ✓ متاح بدون إنترنت
-                        </span>
+                          {isDownloading ? 'جارٍ التحميل…' : '⬇ تحميل للأوفلاين'}
+                        </button>
+                      )}
+
+                      {deleteConfirm === session.id ? (
+                        <>
+                          <button
+                            className="danger-button"
+                            onClick={() => void handleDelete(session.id)}
+                          >
+                            تأكيد الحذف
+                          </button>
+                          <button
+                            className="compact-button"
+                            onClick={() => setDeleteConfirm(null)}
+                          >
+                            إلغاء
+                          </button>
+                        </>
                       ) : (
-                        <span
-                          className="session-badge cloud-only"
-                          title="موجودة في السحابة فقط — حمّلها لتتمكن من فتحها بدون اتصال"
-                        >
-                          ☁ في السحابة
-                        </span>
+                        <>
+                          <button
+                            className="primary open-action-btn"
+                            onClick={() => onNavigate(session.id)}
+                          >
+                            فتح المحرر
+                          </button>
+                          <button
+                            className="compact-button viewer-action-btn"
+                            onClick={() => window.open(`?t=${session.id}&view=viewer`, '_blank')}
+                            title="فتح دليل العائلة المخصص للمستخدمين بدون محرر"
+                          >
+                            📱 عرض الدليل العائلي
+                          </button>
+                          <button
+                            className="compact-button link-branch-btn"
+                            onClick={() => openLinkModal(session)}
+                            title="إضافة فرع مرتبط (بنت / أخ) أو ربط شجرة بهذا الأصل"
+                          >
+                            🔗 + فرع مرتبط
+                          </button>
+                          <button
+                            className="compact-button delete-action-btn"
+                            onClick={() => setDeleteConfirm(session.id)}
+                            title="حذف الشجرة"
+                          >
+                            حذف
+                          </button>
+                        </>
                       )}
                     </div>
                   </div>
 
-                  <div className="tree-list-actions">
-                    {/* Download button for online & not downloaded */}
-                    {!isOffline && !isDownloaded && (
-                      <button
-                        className="compact-button download-action-btn"
-                        onClick={() => void downloadSession(session.id)}
-                        disabled={isDownloading}
-                        title="تحميل الشجرة للعمل بدون إنترنت"
-                      >
-                        {isDownloading ? 'جارٍ التحميل…' : '⬇ تحميل للأوفلاين'}
-                      </button>
-                    )}
+                  {/* ── Nested branches list ── */}
+                  {branches.length > 0 && (
+                    <div className="tree-branches-wrapper">
+                      <div className="tree-branches-indicator">
+                        <span className="tree-branch-arrow">↳</span>
+                        <span className="tree-branches-label">الأفرع والشجرات المتصلة بهذا الأصل:</span>
+                      </div>
+                      <ul className="tree-branches-sublist">
+                        {branches.map((branch) => {
+                          const l = branch.linkedFrom!
+                          const bDownloaded = branch.downloaded === true
+                          const bDownloading = downloadingId === branch.id
 
-                    {deleteConfirm === session.id ? (
-                      <>
-                        <button
-                          className="danger-button"
-                          onClick={() => void handleDelete(session.id)}
-                        >
-                          تأكيد الحذف
-                        </button>
-                        <button
-                          className="compact-button"
-                          onClick={() => setDeleteConfirm(null)}
-                        >
-                          إلغاء
-                        </button>
-                      </>
-                    ) : (
-                      <>
-                        <button
-                          className="primary open-action-btn"
-                          onClick={() => onNavigate(session.id)}
-                        >
-                          فتح
-                        </button>
-                        <button
-                          className="compact-button delete-action-btn"
-                          onClick={() => setDeleteConfirm(session.id)}
-                          title="حذف الشجرة"
-                        >
-                          حذف
-                        </button>
-                      </>
-                    )}
-                  </div>
+                          return (
+                            <li key={branch.id} className="tree-branch-item">
+                              <div className="tree-branch-info">
+                                <div className="tree-branch-title-line">
+                                  <span className={`link-badge-pill ${l.type}`}>
+                                    {l.type === 'daughter-branch'
+                                      ? '🧬 فرع بنت'
+                                      : l.type === 'brother-branch'
+                                      ? '🤝 فرع أخ الجد'
+                                      : '🌿 فرع مرتبط'}
+                                  </span>
+                                  <strong className="tree-branch-title">{branch.name}</strong>
+                                  {l.personName && (
+                                    <span className="tree-branch-person-tag">
+                                      ({l.personName})
+                                    </span>
+                                  )}
+                                </div>
+                                {l.note && <p className="tree-branch-note-text">{l.note}</p>}
+                                <div className="tree-branch-meta-line">
+                                  <span className="tree-list-date">
+                                    🕒 {formatDate(branch.updated_at)}
+                                  </span>
+                                  {bDownloaded ? (
+                                    <span className="session-badge downloaded-mini">✓ محلي</span>
+                                  ) : (
+                                    <span className="session-badge cloud-mini">☁ سحابي</span>
+                                  )}
+                                </div>
+                              </div>
+
+                              <div className="tree-branch-actions">
+                                {!isOffline && !bDownloaded && (
+                                  <button
+                                    className="compact-button download-action-btn"
+                                    onClick={() => void downloadSession(branch.id)}
+                                    disabled={bDownloading}
+                                    title="تحميل للأوفلاين"
+                                  >
+                                    {bDownloading ? '…' : '⬇'}
+                                  </button>
+                                )}
+                                <button
+                                  className="compact-button primary"
+                                  onClick={() => onNavigate(branch.id)}
+                                >
+                                  فتح المحرر
+                                </button>
+                                <button
+                                  className="compact-button viewer-action-btn"
+                                  onClick={() => window.open(`?t=${branch.id}&view=viewer`, '_blank')}
+                                  title="عرض الدليل العائلي"
+                                >
+                                  📱 الدليل
+                                </button>
+                                {deleteConfirm === branch.id ? (
+                                  <>
+                                    <button
+                                      className="danger-button"
+                                      onClick={() => void handleDelete(branch.id)}
+                                    >
+                                      تأكيد
+                                    </button>
+                                    <button
+                                      className="compact-button"
+                                      onClick={() => setDeleteConfirm(null)}
+                                    >
+                                      إلغاء
+                                    </button>
+                                  </>
+                                ) : (
+                                  <>
+                                    <button
+                                      className="compact-button delete-action-btn"
+                                      onClick={() => setDeleteConfirm(branch.id)}
+                                      title="حذف هذا الفرع"
+                                    >
+                                      حذف
+                                    </button>
+                                    <button
+                                      className="compact-button unlink-action-btn"
+                                      onClick={() => void handleLinkExistingTree(branch.id, null)}
+                                      title="فك ارتباط هذا الفرع ليصبح شجرة رئيسية مستقلة"
+                                    >
+                                      فك الارتباط
+                                    </button>
+                                  </>
+                                )}
+                              </div>
+                            </li>
+                          )
+                        })}
+                      </ul>
+                    </div>
+                  )}
                 </li>
               )
             })}
+
+            {/* ── Standalone / Orphaned linked trees if any ── */}
+            {orphanLinkedTrees.length > 0 && (
+              <div className="orphan-branches-block">
+                <h3 className="orphan-branches-title">أفرع وشجرات مرتبطة أخرى</h3>
+                {orphanLinkedTrees.map((branch) => {
+                  const l = branch.linkedFrom!
+                  const isDownloaded = branch.downloaded === true
+                  const isDownloading = downloadingId === branch.id
+
+                  return (
+                    <li key={branch.id} className="tree-list-item orphan-tree-item">
+                      <div className="tree-list-info">
+                        <div className="tree-list-title-row">
+                          <span className={`link-badge-pill ${l.type}`}>
+                            {l.type === 'daughter-branch'
+                              ? '🧬 فرع بنت'
+                              : l.type === 'brother-branch'
+                              ? '🤝 فرع أخ الجد'
+                              : '🌿 فرع مرتبط'}
+                          </span>
+                          <p className="tree-list-name">{branch.name}</p>
+                          <span className="session-root-tag">
+                            الأصل: {l.mainTreeName}
+                          </span>
+                        </div>
+                        <div className="tree-list-meta-row">
+                          <span className="tree-list-date">
+                            🕒 آخر تعديل: {formatDate(branch.updated_at)}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="tree-list-actions">
+                        {!isOffline && !isDownloaded && (
+                          <button
+                            className="compact-button download-action-btn"
+                            onClick={() => void downloadSession(branch.id)}
+                            disabled={isDownloading}
+                          >
+                            ⬇ للأوفلاين
+                          </button>
+                        )}
+                        <button
+                          className="primary open-action-btn"
+                          onClick={() => onNavigate(branch.id)}
+                        >
+                          فتح المحرر
+                        </button>
+                        <button
+                          className="compact-button"
+                          onClick={() => void handleLinkExistingTree(branch.id, null)}
+                          title="فك الارتباط"
+                        >
+                          فك الارتباط
+                        </button>
+                      </div>
+                    </li>
+                  )
+                })}
+              </div>
+            )}
           </ul>
         )}
 
@@ -421,6 +667,16 @@ create trigger trees_updated_at
             : '💡 قم بتحميل الجلسات (⬇) قبل مغادرة الاتصال بالإنترنت لتتمكن من تعديلها في أي وقت.'}
         </p>
       </div>
+
+      {/* Link Tree Modal */}
+      <LinkTreeModal
+        isOpen={isLinkModalOpen}
+        onClose={() => setIsLinkModalOpen(false)}
+        mainTree={linkModalTargetTree}
+        allTrees={sessions}
+        onCreateLinkedTree={handleCreateLinkedTree}
+        onLinkExistingTree={handleLinkExistingTree}
+      />
     </main>
   )
 }
@@ -439,11 +695,55 @@ function TreeChartPage({
   onGoHome: () => void
 }) {
   const tree = useTreeBuilder(treeId)
+  const { sessions, refresh } = useSessionList()
   const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [showKinshipModal, setShowKinshipModal] = useState(false)
+
+  const [showUnifiedView, setShowUnifiedView] = useState(true)
+  const [isLinkModalOpen, setIsLinkModalOpen] = useState(false)
+  const [linkModalPerson, setLinkModalPerson] = useState<Person | null>(null)
+  const [linkModalTargetBranchId, setLinkModalTargetBranchId] = useState<string | null>(null)
   const counts = tree.root ? countPeople(tree.root) : { males: 0, females: 0 }
 
+  const mainTreeName = tree.root ? `شجرة ${tree.root.name}` : 'الشجرة الرئيسية'
+  const currentTreeMeta = useMemo(() => sessions.find((s) => s.id === treeId) || null, [sessions, treeId])
+
+  async function handleCreateLinkedTree(name: string, state: TreeState, link: TreeLink) {
+    const id = await createTree(name, state, link)
+    if (id) {
+      await refresh()
+      setShowUnifiedView(true)
+    }
+    return id
+  }
+
+  async function handleLinkExistingTree(branchTreeId: string, link: TreeLink | null) {
+    await updateTreeLink(branchTreeId, link)
+    await refresh()
+    setShowUnifiedView(true)
+  }
+
+  const { unifiedResult, isLoading: isLoadingUnified, hasConnectedBranches, branchCount } = useUnifiedTree({
+    mainTreeId: treeId,
+    mainRoot: tree.root ?? null,
+    mainTreeName,
+    sessions,
+    enabled: showUnifiedView,
+  })
+
+  const displayRoot = showUnifiedView && unifiedResult ? unifiedResult.root : tree.root
+
   if (!tree.root) {
+    return (
+      <main className="setup" dir="rtl">
+        <div className="setup-card">
+          <p className="eyebrow">نَسَب</p>
+          <h1>جارٍ تحميل مخطط الشجرة…</h1>
+        </div>
+      </main>
+    )
+  }
+
+  if (!displayRoot) {
     return (
       <main className="setup" dir="rtl">
         <div className="setup-card">
@@ -487,13 +787,52 @@ function TreeChartPage({
           🖨️ وثيقة للطباعة
         </button>
 
-        <button
-          type="button"
-          className="compact-button"
-          onClick={() => setShowKinshipModal(true)}
-        >
-          🔍 معرفة صلة القرابة
-        </button>
+        {hasConnectedBranches && (
+          <button
+            type="button"
+            className={`compact-button${showUnifiedView ? ' primary' : ''}`}
+            onClick={() => setShowUnifiedView((v) => !v)}
+            title={showUnifiedView ? 'عرض الشجرة الحالية فقط' : `عرض كل الأشجار المرتبطة (${branchCount} فرع) في مخطط واحد`}
+          >
+            {isLoadingUnified ? '⟳ جارٍ الدمج…' : showUnifiedView ? '🌐 عرض موحد ✓' : `🌐 عرض موحد (${branchCount})`}
+          </button>
+        )}
+
+        {currentTreeMeta?.linkedFrom ? (
+          <div className="linked-tree-header-badge">
+            <span className="badge-icon">
+              {currentTreeMeta.linkedFrom.type === 'daughter-branch' ? '🧬' : '🤝'}
+            </span>
+            <span>
+              متصلة بـ «{currentTreeMeta.linkedFrom.mainTreeName}»
+              {currentTreeMeta.linkedFrom.personName ? ` (أم/صلة: ${currentTreeMeta.linkedFrom.personName})` : ''}
+            </span>
+            <button
+              type="button"
+              className="unlink-mini-btn"
+              onClick={() => void handleLinkExistingTree(treeId, null)}
+              title="فك الارتباط لتصبح هذه الشجرة مستقلة ومنفصلة تماماً"
+            >
+              ✂️ فك الارتباط (جعلها مستقلة)
+            </button>
+          </div>
+        ) : (
+          <button
+            type="button"
+            className="compact-button"
+            onClick={() => {
+              setLinkModalTargetBranchId(treeId)
+              setLinkModalPerson(null)
+              setIsLinkModalOpen(true)
+            }}
+            title="ربط هذه الشجرة كفرع لشجرة أخرى (مثال: أخت الجد الخامس هي أم لهذه الشجرة)"
+          >
+            🔗 ربط هذه الشجرة كفرع بشجرة أخرى
+          </button>
+        )}
+
+
+
 
         {tree.isOffline ? (
           <span className="sync-indicator offline" role="status" title="حفظ محلي تلقائي بدون إنترنت">
@@ -513,8 +852,14 @@ function TreeChartPage({
       </header>
 
       <main className="chart-page-body">
+        {showUnifiedView && unifiedResult?.isUnified && (
+          <div className="unified-view-banner" role="status">
+            🌐 <strong>عرض موحد:</strong> تشمل هذه الشجرة {unifiedResult.connectedTreeIds.length} شجرة مدمجة — {unifiedResult.branchCount} فرع مرتبط. الأفرع تظهر بشارات ملونة.
+          </div>
+        )}
         <VisualTreeChart
-          root={tree.root}
+          root={displayRoot}
+          isUnifiedView={showUnifiedView && !!unifiedResult?.isUnified}
           selectedId={selectedId}
           currentId={tree.currentPersonId}
           onSelectPerson={(person) => setSelectedId(person.id)}
@@ -526,17 +871,31 @@ function TreeChartPage({
           onDeletePerson={(personId) => tree.deletePerson(personId)}
           onAddWife={(personId, wifeNameOrId) => tree.addWifeToPerson(personId, wifeNameOrId)}
           onRemoveWife={(personId, index) => tree.removeWifeFromPerson(personId, index)}
+          onLinkBranchForPerson={(person) => {
+            setLinkModalPerson(person)
+            setLinkModalTargetBranchId(null)
+            setIsLinkModalOpen(true)
+          }}
         />
       </main>
 
-      {showKinshipModal && (
-        <RelationshipModal
-          root={tree.root}
-          initialPersonAId={selectedId || undefined}
-          onClose={() => setShowKinshipModal(false)}
-          onSelectPerson={(person) => setSelectedId(person.id)}
-        />
-      )}
+      {/* Link Branch Modal from within the chart */}
+      <LinkTreeModal
+        isOpen={isLinkModalOpen}
+        onClose={() => {
+          setIsLinkModalOpen(false)
+          setLinkModalPerson(null)
+          setLinkModalTargetBranchId(null)
+        }}
+        mainTree={linkModalTargetBranchId ? null : currentTreeMeta}
+        allTrees={sessions}
+        initialPerson={linkModalPerson}
+        targetBranchTreeId={linkModalTargetBranchId}
+        onCreateLinkedTree={handleCreateLinkedTree}
+        onLinkExistingTree={handleLinkExistingTree}
+      />
+
+
     </div>
   )
 }
@@ -547,14 +906,21 @@ function TreePrintPage({
   treeId,
   onGoToEditor,
   onGoToChart,
+  onOpenTree,
   onGoHome,
 }: {
   treeId: string
   onGoToEditor: () => void
   onGoToChart: () => void
+  onOpenTree?: (treeId: string) => void
   onGoHome: () => void
 }) {
   const tree = useTreeBuilder(treeId)
+  const { sessions } = useSessionList()
+  const linkedTrees = useMemo(
+    () => sessions.filter((s) => s.linkedFrom?.mainTreeId === treeId),
+    [sessions, treeId]
+  )
 
   if (!tree.root) {
     return (
@@ -574,8 +940,11 @@ function TreePrintPage({
     <PrintableTributeView
       root={tree.root}
       treeName={`وثيقة نسب آل ${tree.root.name}`}
+      linkedFrom={tree.linkedFrom}
+      linkedTrees={linkedTrees}
       onGoBack={onGoToEditor}
       onGoToChart={onGoToChart}
+      onOpenTree={onOpenTree}
     />
   )
 }
@@ -586,14 +955,31 @@ function TreeApp({
   treeId,
   onOpenChart,
   onOpenPrint,
+  onOpenTree,
   onGoHome,
 }: {
   treeId: string
   onOpenChart: () => void
   onOpenPrint: () => void
+  onOpenTree?: (treeId: string) => void
   onGoHome: () => void
 }) {
   const tree = useTreeBuilder(treeId)
+  const { sessions, refresh } = useSessionList()
+  const [isLinkModalOpen, setIsLinkModalOpen] = useState(false)
+  const currentTreeMeta = useMemo(() => sessions.find((s) => s.id === treeId) || null, [sessions, treeId])
+
+  async function handleLinkExistingTree(branchTreeId: string, link: TreeLink | null) {
+    await updateTreeLink(branchTreeId, link)
+    await refresh()
+  }
+
+  async function handleCreateLinkedTree(name: string, state: TreeState, link: TreeLink) {
+    const id = await createTree(name, state, link)
+    if (id) await refresh()
+    return id
+  }
+
   const sidebarRef = useRef<HTMLElement>(null)
   const resizeRef = useRef<{
     pointerId: number
@@ -715,6 +1101,19 @@ function TreeApp({
     event.currentTarget.releasePointerCapture(event.pointerId)
   }
 
+  const isWivesPhase = tree.phase === 'add-wives'
+  const isChildrenPhase = tree.phase === 'enter-children'
+
+  const activeFocus = useMemo(() => {
+    if (isChildrenPhase) {
+      return reviewFocus === 'wives' || reviewFocus === 'mothers' ? reviewFocus : 'children'
+    }
+    if (isWivesPhase) {
+      return reviewFocus === 'children' || reviewFocus === 'mothers' ? reviewFocus : 'wives'
+    }
+    return reviewFocus
+  }, [isChildrenPhase, isWivesPhase, reviewFocus])
+
   // ── Setup screen (new tree, no root yet) ──
   if (tree.phase === 'setup' || !tree.root) {
     return (
@@ -728,6 +1127,27 @@ function TreeApp({
           <p className="lede">
             ابدأ بالجد الأعلى، ثم أدخل أبناء وبنات كل رجل كما وردوا في الكتاب.
           </p>
+          {tree.linkedFrom && (
+            <div className="setup-linked-banner">
+              <span className="badge-icon">
+                {tree.linkedFrom.type === 'daughter-branch'
+                  ? '🧬'
+                  : tree.linkedFrom.type === 'brother-branch'
+                  ? '🤝'
+                  : '🌿'}
+              </span>
+              <div>
+                <strong>
+                  {tree.linkedFrom.type === 'daughter-branch'
+                    ? `فرع بنت: ${tree.linkedFrom.personName || ''}`
+                    : tree.linkedFrom.type === 'brother-branch'
+                    ? `فرع أخ الجد الأكبر: ${tree.linkedFrom.personName || ''}`
+                    : 'فرع عائلي مرتبط'}
+                </strong>
+                <p>متصل بالشجرة الرئيسية «{tree.linkedFrom.mainTreeName}»</p>
+              </div>
+            </div>
+          )}
           <form
             className="entry-form"
             onSubmit={(event) => {
@@ -759,20 +1179,8 @@ function TreeApp({
   }
 
   const isComplete = tree.phase === 'complete'
-  const isWivesPhase = tree.phase === 'add-wives'
-  const isChildrenPhase = tree.phase === 'enter-children'
   const isEditingEarlier =
     selectedId !== null && selectedId !== tree.currentPersonId
-
-  const activeFocus = useMemo(() => {
-    if (isChildrenPhase) {
-      return reviewFocus === 'wives' || reviewFocus === 'mothers' ? reviewFocus : 'children'
-    }
-    if (isWivesPhase) {
-      return reviewFocus === 'children' || reviewFocus === 'mothers' ? reviewFocus : 'wives'
-    }
-    return reviewFocus
-  }, [isChildrenPhase, isWivesPhase, reviewFocus])
 
   const showWivesForm = activeFocus === 'wives'
   const showMothersForm = activeFocus === 'mothers'
@@ -800,6 +1208,45 @@ function TreeApp({
           <span className="brand-mark">ن</span>
           <span>نَسَب</span>
         </div>
+
+        {(tree.linkedFrom || currentTreeMeta?.linkedFrom) ? (
+          <div className="linked-tree-header-badge">
+            <button
+              type="button"
+              className="linked-tree-nav-btn"
+              onClick={() => {
+                const mainId = (tree.linkedFrom || currentTreeMeta?.linkedFrom)!.mainTreeId
+                if (onOpenTree) onOpenTree(mainId)
+              }}
+              title={`الانتقال إلى الشجرة الرئيسية «${(tree.linkedFrom || currentTreeMeta?.linkedFrom)!.mainTreeName}»`}
+            >
+              <span className="badge-icon">
+                {(tree.linkedFrom || currentTreeMeta?.linkedFrom)!.type === 'daughter-branch' ? '🧬' : '🤝'}
+              </span>
+              <span>
+                متصلة بـ «{(tree.linkedFrom || currentTreeMeta?.linkedFrom)!.mainTreeName}»
+                {(tree.linkedFrom || currentTreeMeta?.linkedFrom)!.personName ? ` (أم/صلة: ${(tree.linkedFrom || currentTreeMeta?.linkedFrom)!.personName})` : ''}
+              </span>
+            </button>
+            <button
+              type="button"
+              className="unlink-mini-btn"
+              onClick={() => void handleLinkExistingTree(treeId, null)}
+              title="فك الارتباط لتصبح هذه الشجرة مستقلة ومنفصلة تماماً"
+            >
+              ✂️ فك الارتباط (جعلها مستقلة)
+            </button>
+          </div>
+        ) : (
+          <button
+            type="button"
+            className="compact-button"
+            onClick={() => setIsLinkModalOpen(true)}
+            title="ربط هذه الشجرة كفرع لشجرة أخرى (مثلاً: أخت الجد الخامس هي أم لهذه الشجرة)"
+          >
+            🔗 ربط كفرع بشجرة أخرى
+          </button>
+        )}
 
         <button
           type="button"
@@ -912,6 +1359,9 @@ function TreeApp({
                     lineageText={lineageText}
                     isCurrent={!isEditingEarlier && isWivesPhase}
                     progressLabel={wivesProgressLabel}
+                    currentTreeId={treeId}
+                    currentTreeName={tree.root ? `شجرة ${tree.root.name}` : undefined}
+                    availableTrees={sessions}
                     onRename={(name) => tree.renamePerson(selectedPerson.id, name)}
                     onSave={(wives) => {
                       tree.setWives(selectedPerson.id, wives)
@@ -1136,6 +1586,17 @@ function TreeApp({
         />
       </aside>
 
+      {isLinkModalOpen && (
+        <LinkTreeModal
+          isOpen={isLinkModalOpen}
+          onClose={() => setIsLinkModalOpen(false)}
+          mainTree={null}
+          allTrees={sessions}
+          targetBranchTreeId={treeId}
+          onCreateLinkedTree={handleCreateLinkedTree}
+          onLinkExistingTree={handleLinkExistingTree}
+        />
+      )}
     </div>
   )
 }

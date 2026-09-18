@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { supabase, isConfigured } from '../lib/supabase'
-import { getDb, getUnsyncedSessions, markSessionSynced } from '../localDb'
+import { getUnsyncedSessions, markSessionSynced } from '../localDb'
 
 export function useSync() {
   const [isSyncing, setIsSyncing] = useState(false)
@@ -21,13 +21,17 @@ export function useSync() {
 
       for (const session of unsyncedSessions) {
         // Upsert session to Supabase 'trees' table (last-write-wins)
+        const stateToSave = session.linkedFrom
+          ? { ...session.state, linkedFrom: session.linkedFrom }
+          : session.state
+
         const { error: treeErr } = await supabase
           .from('trees')
           .upsert(
             {
               id: session.id,
               name: session.name,
-              state: session.state,
+              state: stateToSave,
               updated_at: session.updated_at || new Date().toISOString(),
             },
             {
@@ -57,39 +61,6 @@ export function useSync() {
           if (!sessErr) {
             await markSessionSynced(session.id)
           }
-        }
-      }
-
-      // 2. Also check if there are any unsynced persons in IndexedDB
-      const db = await getDb()
-      const allPersons = await db.getAll<any>('persons')
-      const unsyncedPersons = allPersons.filter((p) => p.synced === false)
-
-      for (const person of unsyncedPersons) {
-        try {
-          const { error: pErr } = await supabase
-            .from('persons')
-            .upsert(
-              {
-                id: person.id,
-                sessionId: person.sessionId,
-                name: person.name,
-                gender: person.gender,
-                wives: person.wives,
-                children: person.children,
-                updated_at: person.updated_at || new Date().toISOString(),
-              },
-              {
-                onConflict: 'id',
-                ignoreDuplicates: false,
-              }
-            )
-
-          if (!pErr) {
-            await db.put('persons', { ...person, synced: true })
-          }
-        } catch {
-          // Ignore if persons table is not present
         }
       }
 

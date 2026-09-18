@@ -1,26 +1,51 @@
-:root {
-  --bg: oklch(0.968 0.012 82);
-  --bg-raised: oklch(0.992 0.007 82);
-  --bg-sunken: oklch(0.945 0.014 82);
-  --border: oklch(0.875 0.018 75);
-  --border-strong: oklch(0.78 0.025 72);
-  --text: oklch(0.39 0.025 65);
-  --text-strong: oklch(0.22 0.028 60);
-  --text-dim: oklch(0.52 0.022 65);
-  --accent: oklch(0.52 0.105 72);
-  --accent-hover: oklch(0.45 0.11 70);
-  --accent-ink: oklch(0.985 0.006 80);
-  --accent-soft: oklch(0.91 0.045 78);
-  --male: oklch(0.48 0.105 238);
-  --male-soft: oklch(0.925 0.03 238);
-  --female: oklch(0.52 0.1 12);
-  --female-soft: oklch(0.93 0.032 12);
-  --danger: oklch(0.49 0.14 27);
-  --danger-soft: oklch(0.93 0.035 27);
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
-  --sans: Tahoma, 'Segoe UI', system-ui, -apple-system, sans-serif;
-  --serif: Tahoma, 'Segoe UI', system-ui, sans-serif;
-  --mono: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+:root {
+  /* ── Surface hierarchy ── */
+  --bg:           oklch(0.97 0.009 82);
+  --bg-raised:    oklch(0.995 0.004 82);
+  --bg-sunken:    oklch(0.94  0.013 82);
+
+  /* ── Borders ── */
+  --border:        oklch(0.87 0.018 75);
+  --border-strong: oklch(0.76 0.026 72);
+
+  /* ── Text ── */
+  --text:          oklch(0.38 0.024 65);
+  --text-strong:   oklch(0.20 0.028 60);
+  --text-dim:      oklch(0.53 0.020 65);
+
+  /* ── Accent (warm amber-gold) ── */
+  --accent:        oklch(0.58 0.140 72);
+  --accent-hover:  oklch(0.51 0.148 70);
+  --accent-ink:    oklch(0.99 0.006 80);
+  --accent-soft:   oklch(0.93 0.048 78);
+
+  /* ── Gender tints ── */
+  --male:         oklch(0.50 0.110 238);
+  --male-soft:    oklch(0.93 0.030 238);
+  --female:       oklch(0.54 0.105 12);
+  --female-soft:  oklch(0.94 0.030 12);
+
+  /* ── Semantic ── */
+  --danger:       oklch(0.50 0.145 27);
+  --danger-soft:  oklch(0.94 0.035 27);
+  --success:      oklch(0.54 0.130 150);
+  --success-soft: oklch(0.94 0.040 150);
+
+  /* ── Typography ── */
+  --sans:  'Inter', Tahoma, 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --serif: 'Inter', Tahoma, 'Segoe UI', system-ui, sans-serif;
+  --mono:  ui-monospace, 'Cascadia Mono', Consolas, monospace;
+
+  /* ── Shadows ── */
+  --shadow-sm: 0 1px 4px oklch(0.35 0.02 70 / 0.08);
+  --shadow-md: 0 4px 16px oklch(0.35 0.02 70 / 0.10);
+  --shadow-lg: 0 12px 40px oklch(0.35 0.02 70 / 0.14);
+
+  /* ── Motion ── */
+  --ease-out: cubic-bezier(0.25, 1, 0.5, 1);
+  --duration: 180ms;
 
   font-family: var(--sans);
   font-size: 16px;
@@ -49,9 +74,9 @@ h1,
 h2,
 h3 {
   font-family: var(--serif);
-  font-weight: 600;
+  font-weight: 700;
   color: var(--text-strong);
-  letter-spacing: -0.01em;
+  letter-spacing: -0.02em;
   margin: 0;
 }
 
@@ -59,76 +84,109 @@ p {
   margin: 0;
 }
 
+/* ── Base button ── */
 button {
   font: inherit;
   cursor: pointer;
   min-height: 40px;
-  border-radius: 7px;
+  border-radius: 8px;
   border: 1px solid var(--border-strong);
   background: var(--bg-raised);
   color: var(--text-strong);
   padding: 10px 18px;
   transition:
-    background 180ms cubic-bezier(0.25, 1, 0.5, 1),
-    border-color 180ms cubic-bezier(0.25, 1, 0.5, 1),
-    color 180ms cubic-bezier(0.25, 1, 0.5, 1),
-    transform 180ms cubic-bezier(0.25, 1, 0.5, 1);
+    background var(--duration) var(--ease-out),
+    border-color var(--duration) var(--ease-out),
+    color var(--duration) var(--ease-out),
+    box-shadow var(--duration) var(--ease-out),
+    transform var(--duration) var(--ease-out);
 }
 
 button:hover {
   border-color: var(--accent);
   background: var(--accent-soft);
+  box-shadow: var(--shadow-sm);
 }
 
 button:active {
   transform: translateY(1px);
+  box-shadow: none;
 }
 
 button:focus-visible,
-input:focus-visible {
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 
+/* ── Primary button ── */
 button.primary {
   background: var(--accent);
   border-color: var(--accent);
   color: var(--accent-ink);
   font-weight: 600;
+  box-shadow: 0 2px 8px oklch(0.58 0.14 72 / 0.25);
 }
 
 button.primary:hover {
   background: var(--accent-hover);
   border-color: var(--accent-hover);
+  box-shadow: 0 4px 14px oklch(0.58 0.14 72 / 0.35);
 }
 
+/* ── Ghost button ── */
 button.ghost {
   background: transparent;
   border-color: transparent;
   color: var(--text-dim);
+  box-shadow: none;
 }
 
-input[type='text'] {
+button.ghost:hover {
+  background: var(--bg-sunken);
+  border-color: var(--border);
+  box-shadow: none;
+}
+
+/* ── Inputs ── */
+input[type='text'],
+input[type='search'] {
   font: inherit;
   color: var(--text-strong);
-  background: var(--bg-sunken);
+  background: var(--bg-raised);
   border: 1px solid var(--border-strong);
   border-radius: 8px;
   padding: 10px 14px;
   width: 100%;
+  transition: border-color var(--duration) var(--ease-out), box-shadow var(--duration) var(--ease-out);
 }
 
-@media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    scroll-behavior: auto !important;
-    transition-duration: 0.01ms !important;
-  }
+input[type='text']:hover,
+input[type='search']:hover {
+  border-color: var(--accent);
 }
 
-input[type='text']::placeholder {
+input[type='text']::placeholder,
+input[type='search']::placeholder {
   color: var(--text-dim);
+}
+
+select {
+  font: inherit;
+  color: var(--text-strong);
+  background: var(--bg-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  padding: 9px 14px;
+  width: 100%;
+  cursor: pointer;
+  transition: border-color var(--duration) var(--ease-out);
+}
+
+select:hover {
+  border-color: var(--accent);
 }
 
 kbd {
@@ -139,4 +197,14 @@ kbd {
   border-radius: 4px;
   padding: 1px 5px;
   color: var(--text-strong);
+  background: var(--bg-sunken);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
 }

@@ -1,4 +1,4 @@
-import type { ExternalWife, Person, TreeWife, Wife } from './types'
+import type { BranchMeta, ExternalWife, Person, TreeLink, TreeState, TreeWife, Wife } from './types'
 
 export function findPerson(root: Person, id: string): Person | null {
   if (root.id === id) return root
@@ -34,10 +34,15 @@ export function findPath(root: Person, id: string): Person[] {
 export function getLineageText(root: Person, id: string): string {
   const path = findPath(root, id)
   if (path.length === 0) return ''
-  return [...path]
-    .reverse()
-    .map((p) => p.name)
-    .join(' بن ')
+  const reversed = [...path].reverse()
+  return reversed
+    .map((p, idx) => {
+      if (idx === 0) return p.name
+      const prev = reversed[idx - 1]
+      const connector = prev.gender === 'F' ? 'بنت' : 'بن'
+      return `${connector} ${p.name}`
+    })
+    .join(' ')
 }
 
 export function getSons(person: Person): Person[] {
@@ -95,8 +100,24 @@ export function newWifeId(): string {
   return `w-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 }
 
-export function createTreeWife(personId: string): TreeWife {
-  return { id: newWifeId(), type: 'tree', personId: personId.toUpperCase() }
+export function createTreeWife(
+  personId: string,
+  extra?: {
+    treeId?: string
+    treeName?: string
+    personName?: string
+    lineageLabel?: string
+  },
+): TreeWife {
+  return {
+    id: newWifeId(),
+    type: 'tree',
+    personId: personId.toUpperCase(),
+    treeId: extra?.treeId,
+    treeName: extra?.treeName,
+    personName: extra?.personName,
+    lineageLabel: extra?.lineageLabel,
+  }
 }
 
 export function createExternalWife(
@@ -135,10 +156,15 @@ export function isWife(value: unknown): value is Wife {
 export function normalizeWife(raw: unknown, index = 0): Wife | null {
   if (isWife(raw)) {
     if (raw.type === 'tree') {
+      const tw = raw as TreeWife
       return {
-        id: raw.id,
+        id: tw.id,
         type: 'tree',
-        personId: raw.personId.toUpperCase(),
+        personId: tw.personId.toUpperCase(),
+        treeId: tw.treeId,
+        treeName: tw.treeName,
+        personName: tw.personName,
+        lineageLabel: tw.lineageLabel,
       }
     }
     return {
@@ -222,7 +248,9 @@ export function resolveWife(
 export function wifeDisplayName(wife: Wife, root: Person): string {
   if (wife.type === 'tree') {
     const linked = resolveWife(wife, root)
-    return linked ? linked.name : wife.personId
+    if (linked) return linked.name
+    if (wife.personName) return wife.personName
+    return wife.personId
   }
   return wife.name || 'زوجة'
 }
@@ -234,9 +262,14 @@ export function wifeShortLabel(wife: Wife, root: Person): string {
   if (!wife) return ''
   if (wife.type === 'tree') {
     const linked = resolveWife(wife, root)
-    return linked
-      ? `${linked.name} (${linked.id})`
-      : `من الشجرة · ${wife.personId}`
+    if (linked) {
+      return `${linked.name} (${linked.id})`
+    }
+    if (wife.personName) {
+      const fromTree = wife.treeName ? ` [من: ${wife.treeName}]` : ''
+      return `${wife.personName}${fromTree} (${wife.personId})`
+    }
+    return `من الشجرة · ${wife.personId}`
   }
   const family = wife.family ? ` · ${wife.family}` : ''
   return `${wife.name || 'زوجة'}${family}`
@@ -470,36 +503,77 @@ export function findRelationship(
   const personB = findPerson(root, idB)
   if (!personA || !personB) return null
 
-  const pathA = findPath(root, idA)
-  const pathB = findPath(root, idB)
+  // Helper to retrieve both father and mother (if known) of a person
+  const getParents = (person: Person): Person[] => {
+    const parents: Person[] = []
+    const father = findParent(root, person.id)
+    if (father) parents.push(father)
+    if (person.mother && typeof person.mother === 'string') {
+      const mother = findPerson(root, person.mother)
+      if (mother) parents.push(mother)
+    }
+    return parents
+  }
 
-  let lcaIndex = -1
-  const minLen = Math.min(pathA.length, pathB.length)
-  for (let i = 0; i < minLen; i++) {
-    if (pathA[i].id === pathB[i].id) {
-      lcaIndex = i
-    } else {
-      break
+  // Build a map of ancestorId -> {dist, nextChildId}
+  const buildAncestorMap = (start: Person) => {
+    const map = new Map<string, { dist: number; next: string | null }>()
+    const queue: Array<{ node: Person; dist: number; childId: string | null }> = [{ node: start, dist: 0, childId: null }]
+    while (queue.length) {
+      const { node, dist, childId } = queue.shift()!
+      if (map.has(node.id)) continue
+      map.set(node.id, { dist, next: childId })
+      const parents = getParents(node)
+      for (const p of parents) {
+        queue.push({ node: p, dist: dist + 1, childId: node.id })
+      }
+    }
+    return map
+  }
+
+  const ancestorsA = buildAncestorMap(personA)
+  const ancestorsB = buildAncestorMap(personB)
+
+  // Find common ancestor with minimal combined distance (closest relationship)
+  let bestAncestorId: string | null = null
+  let bestDistSum = Infinity
+  let bestDistA = 0
+  let bestDistB = 0
+  for (const [ancId, aInfo] of ancestorsA.entries()) {
+    const bInfo = ancestorsB.get(ancId)
+    if (!bInfo) continue
+    const sum = aInfo.dist + bInfo.dist
+    if (sum < bestDistSum || (sum === bestDistSum && Math.max(aInfo.dist, bInfo.dist) < Math.max(bestDistA, bestDistB))) {
+      bestDistSum = sum
+      bestAncestorId = ancId
+      bestDistA = aInfo.dist
+      bestDistB = bInfo.dist
     }
   }
 
-  if (lcaIndex === -1) return null
+  if (!bestAncestorId) return null
+  const commonAncestor = findPerson(root, bestAncestorId)
+  if (!commonAncestor) return null
 
-  const commonAncestor = pathA[lcaIndex]
-  const distA = pathA.length - 1 - lcaIndex
-  const distB = pathB.length - 1 - lcaIndex
+  const title = getArabicKinshipTerm(bestDistA, bestDistB, personA, personB)
 
-  const title = getArabicKinshipTerm(distA, distB, personA, personB)
+  // Build full root-to-person paths and slice from the closest common ancestor
+  const pathA = findPath(root, idA)
+  const pathB = findPath(root, idB)
+  const idxA = pathA.findIndex(p => p.id === bestAncestorId)
+  const idxB = pathB.findIndex(p => p.id === bestAncestorId)
+  const lineageA = idxA !== -1 ? pathA.slice(idxA) : []
+  const lineageB = idxB !== -1 ? pathB.slice(idxB) : []
 
   return {
     personA,
     personB,
     commonAncestor,
-    distanceA: distA,
-    distanceB: distB,
+    distanceA: bestDistA,
+    distanceB: bestDistB,
     relationshipTitle: title,
-    lineageA: pathA.slice(lcaIndex),
-    lineageB: pathB.slice(lcaIndex),
+    lineageA,
+    lineageB,
   }
 }
 
@@ -509,29 +583,299 @@ function getArabicKinshipTerm(
   pA: Person,
   pB: Person,
 ): string {
-  const isFemale = pB.gender === 'F'
+  const isFemale = pB.gender === 'F';
 
-  if (dA === 0 && dB === 0) return 'نفس الشخص'
-  if (dA === 0 && dB === 1) return isFemale ? 'ابنته المباشرة' : 'ابنه المباشر'
-  if (dA === 1 && dB === 0) return pA.gender === 'F' ? 'والدتها' : 'والده'
-  if (dA === 0 && dB === 2) return isFemale ? 'حفيدته' : 'حفيده'
-  if (dA === 2 && dB === 0) return 'جده'
+  if (dA === 0 && dB === 0) return 'نفس الشخص';
+  if (dA === 0 && dB === 1) return isFemale ? 'ابنته المباشرة' : 'ابنه المباشر';
+  if (dA === 1 && dB === 0) return pA.gender === 'F' ? 'والدتها' : 'والده';
+  if (dA === 0 && dB === 2) return isFemale ? 'حفيدته' : 'حفيده';
+  if (dA === 2 && dB === 0) return 'جده';
   if (dA === 0 && dB > 2)
-    return isFemale ? `من حفيداته (جيل ${dB})` : `من أحفاده (جيل ${dB})`
-  if (dA > 2 && dB === 0) return `من أجداده (جيل ${dA})`
+    return isFemale ? `من حفيداته (جيل ${dB})` : `من أحفاده (جيل ${dB})`;
+  if (dA > 2 && dB === 0) return `من أجداده (جيل ${dA})`;
 
-  if (dA === 1 && dB === 1) return isFemale ? 'أخته' : 'أخوه'
-  if (dA === 1 && dB === 2) return isFemale ? 'ابنة أخيه' : 'ابن أخيه'
-  if (dA === 2 && dB === 1) return isFemale ? 'عمتها' : 'عمه'
-  if (dA === 2 && dB === 2) return isFemale ? 'ابنة عمه' : 'ابن عمه'
-  if (dA === 2 && dB === 3) return isFemale ? 'ابنة ابن عمه' : 'ابن ابن عمه'
-  if (dA === 3 && dB === 2) return isFemale ? 'ابنة عم والده' : 'ابن عم والده'
+  if (dA === 1 && dB === 1) return isFemale ? 'أخته' : 'أخوه';
+  if (dA === 1 && dB === 2) return isFemale ? 'ابنة أخيه' : 'ابن أخيه';
+  if (dA === 2 && dB === 1) return isFemale ? 'عمتها' : 'عمه';
+  if (dA === 2 && dB === 2) return isFemale ? 'ابنة عمه' : 'ابن عمه';
+  if (dA === 2 && dB === 3) return isFemale ? 'ابنة ابن عمه' : 'ابن ابن عمه';
+  if (dA === 3 && dB === 2) return isFemale ? 'ابنة عم والده' : 'ابن عم والده';
   if (dA === 3 && dB === 3)
     return isFemale
       ? 'ابنة عمومة (من الدرجة الثانية)'
-      : 'ابن عمومة (من الدرجة الثانية)'
+      : 'ابن عمومة (من الدرجة الثانية)';
 
   return isFemale
     ? `من قريباته (درجة ${dA + dB})`
-    : `من أقربائه (درجة ${dA + dB})`
+    : `من أقربائه (درجة ${dA + dB})`;
 }
+
+
+
+
+// ── Multi-Tree Unification for Web View ───────────────────────────────────────
+
+export function findPersonByName(root: Person, name: string): Person | null {
+  const norm = (s: string) =>
+    s
+      .normalize('NFD')
+      .replace(/[\u0640\u064B-\u065F\u0670]/g, '')
+      .replace(/[أإآ]/g, 'ا')
+      .replace(/ة/g, 'ه')
+      .replace(/[ىي]/g, 'ي')
+      .trim()
+      .toLowerCase()
+
+  const target = norm(name)
+  if (!target) return null
+
+  const all: Person[] = []
+  function walk(p: Person) {
+    all.push(p)
+    p.children.forEach(walk)
+  }
+  walk(root)
+
+  // 1. Exact match
+  const exact = all.find((p) => norm(p.name) === target)
+  if (exact) return exact
+
+  // 2. Token match before "بنت" or "ابنة" or "بن" or "ابن"
+  const firstWord = target.split(/\s+(?:بنت|ابنة|بن|ابن)\s+/)[0]?.trim()
+  if (firstWord && firstWord !== target) {
+    const byFirst = all.find((p) => norm(p.name) === firstWord)
+    if (byFirst) return byFirst
+  }
+
+  // 3. Starts with or includes
+  const byPrefix = all.find((p) => {
+    const n = norm(p.name)
+    return target.startsWith(n) || n.startsWith(target) || target.includes(n) || n.includes(target)
+  })
+  if (byPrefix) return byPrefix
+
+  return null
+}
+
+export function findFemaleByNameOrId(root: Person, id?: string, name?: string): Person | null {
+  if (id) {
+    const p = findPerson(root, id)
+    if (p) return p
+  }
+  if (!name) return null
+  const norm = (s: string) =>
+    s
+      .normalize('NFD')
+      .replace(/[\u0640\u064B-\u065F\u0670]/g, '')
+      .replace(/[أإآ]/g, 'ا')
+      .replace(/ة/g, 'ه')
+      .replace(/[ىي]/g, 'ي')
+      .trim()
+      .toLowerCase()
+
+  const target = norm(name)
+  if (!target) return null
+
+  const females = collectFemales(root)
+
+  // 1. Exact female match
+  const exact = females.find((f) => norm(f.name) === target)
+  if (exact) return exact
+
+  // 2. First word before "بنت" or "ابنة"
+  const firstWord = target.split(/\s+(?:بنت|ابنة)\s+/)[0]?.trim()
+  if (firstWord && firstWord !== target) {
+    const byFirst = females.find((f) => norm(f.name) === firstWord)
+    if (byFirst) return byFirst
+  }
+
+  // 3. Prefix or includes among females
+  const byPrefix = females.find((f) => {
+    const n = norm(f.name)
+    return target.startsWith(n) || n.startsWith(target) || target.includes(n) || n.includes(target)
+  })
+  if (byPrefix) return byPrefix
+
+  // Fallback to any node in tree
+  return findPersonByName(root, name)
+}
+
+export interface ConnectedBranchInput {
+  id: string
+  name: string
+  state: TreeState
+  linkedFrom?: TreeLink
+}
+
+export interface UnifiedTreeResult {
+  root: Person
+  branchCount: number
+  connectedTreeIds: string[]
+  isUnified: boolean
+}
+
+/**
+ * Merges connected family trees (daughter branches, brother branches, etc.)
+ * into a single unified tree hierarchy for viewing in visual charts and outlines.
+ */
+export function buildUnifiedTree(
+  mainTreeId: string,
+  mainRoot: Person,
+  mainTreeName: string,
+  connectedBranches: ConnectedBranchInput[],
+): UnifiedTreeResult {
+  if (!connectedBranches || connectedBranches.length === 0) {
+    return {
+      root: mainRoot,
+      branchCount: 0,
+      connectedTreeIds: [mainTreeId],
+      isUnified: false,
+    }
+  }
+
+  // Deeply clone and tag nodes with metadata, prefixing IDs to prevent collisions
+  function cloneAndTag(
+    person: Person,
+    prefix: string,
+    meta: BranchMeta,
+  ): Person {
+    return {
+      id: prefix ? `${prefix}${person.id}` : person.id,
+      name: person.name,
+      gender: person.gender,
+      mother: person.mother,
+      branchMeta: {
+        ...meta,
+        originalId: person.id,
+      },
+      wives: person.wives.map((w) => ({ ...w })),
+      children: person.children.map((child) => cloneAndTag(child, prefix, meta)),
+    }
+  }
+
+  const mainMeta: BranchMeta = {
+    treeId: mainTreeId,
+    treeName: mainTreeName,
+    type: 'main',
+  }
+
+  const clonedMain = cloneAndTag(mainRoot, '', mainMeta)
+
+  const daughterBranches: { branch: ConnectedBranchInput; clonedRoot: Person }[] = []
+  const brotherBranches: { branch: ConnectedBranchInput; clonedRoot: Person }[] = []
+  const otherBranches: { branch: ConnectedBranchInput; clonedRoot: Person }[] = []
+  const validConnectedIds: string[] = [mainTreeId]
+
+  for (const b of connectedBranches) {
+    if (!b.state?.root) continue
+    validConnectedIds.push(b.id)
+    const prefix = `br_${b.id.slice(0, 6)}_`
+    const bType = b.linkedFrom?.type || 'other'
+    const bMeta: BranchMeta = {
+      treeId: b.id,
+      treeName: b.name,
+      type: bType,
+      personName: b.linkedFrom?.personName,
+    }
+
+    const clonedRoot = cloneAndTag(b.state.root, prefix, bMeta)
+
+    if (bType === 'daughter-branch') {
+      daughterBranches.push({ branch: b, clonedRoot })
+    } else if (bType === 'brother-branch') {
+      brotherBranches.push({ branch: b, clonedRoot })
+    } else {
+      otherBranches.push({ branch: b, clonedRoot })
+    }
+  }
+
+  // Attach daughter branches to their linking daughter in the tree
+  for (const { branch, clonedRoot } of daughterBranches) {
+    const targetPersonId = branch.linkedFrom?.personId
+    const targetPersonName = branch.linkedFrom?.personName
+
+    const targetNode: Person | null = findFemaleByNameOrId(clonedMain, targetPersonId, targetPersonName)
+
+    if (targetNode) {
+      // Mark the daughter node as having a linked branch
+      targetNode.branchMeta = {
+        treeId: branch.id,
+        treeName: branch.name,
+        type: 'daughter-branch',
+        personName: targetNode.name,
+      }
+
+      // Check if clonedRoot is the daughter herself
+      const normSimple = (s: string) =>
+        s.replace(/[\u0640\u064B-\u065F\u0670]/g, '').replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/[ىي]/g, 'ي').trim().toLowerCase()
+      const isSameAsDaughter =
+        normSimple(clonedRoot.name) === normSimple(targetNode.name) ||
+        normSimple(clonedRoot.name) === `ابناء ${normSimple(targetNode.name)}` ||
+        normSimple(clonedRoot.name) === `ذريه ${normSimple(targetNode.name)}`
+
+      if (isSameAsDaughter && clonedRoot.children.length > 0) {
+        // Direct attachment: attach her children directly to her node (avoids repeating daughter -> daughter)
+        targetNode.children = [...targetNode.children, ...clonedRoot.children]
+      } else {
+        // Direct attachment: daughter node now connects directly to her branch tree
+        targetNode.children = [...targetNode.children, clonedRoot]
+      }
+    } else {
+      // Fallback: attach under clonedMain root
+      clonedMain.children = [...clonedMain.children, clonedRoot]
+    }
+  }
+
+  // Attach other branches
+  for (const { branch, clonedRoot } of otherBranches) {
+    const targetPersonId = branch.linkedFrom?.personId
+    let targetNode = targetPersonId ? findPerson(clonedMain, targetPersonId) : null
+    if (!targetNode && branch.linkedFrom?.personName) {
+      targetNode = findPersonByName(clonedMain, branch.linkedFrom.personName)
+    }
+    if (targetNode) {
+      targetNode.children = [...targetNode.children, clonedRoot]
+    } else {
+      brotherBranches.push({ branch, clonedRoot })
+    }
+  }
+
+  // If there are brother branches, wrap together in a common ancestor root node
+  if (brotherBranches.length > 0) {
+    const brotherRoots = brotherBranches.map((b) => b.clonedRoot)
+    const commonFatherTitle =
+      mainRoot.name.startsWith('شجرة')
+        ? `الأصل الجامع (${mainRoot.name})`
+        : `الأصل المشترك (جامع آل ${mainRoot.name} وإخوته)`
+
+    const containerRoot: Person = {
+      id: `__COMMON_ROOT__`,
+      name: commonFatherTitle,
+      gender: 'M',
+      children: [clonedMain, ...brotherRoots],
+      wives: [],
+      mother: null,
+      branchMeta: {
+        treeId: mainTreeId,
+        treeName: 'الأصل الجامع',
+        type: 'main',
+        isVirtualContainer: true,
+      },
+    }
+
+    return {
+      root: containerRoot,
+      branchCount: daughterBranches.length + brotherBranches.length + otherBranches.length,
+      connectedTreeIds: validConnectedIds,
+      isUnified: true,
+    }
+  }
+
+  return {
+    root: clonedMain,
+    branchCount: daughterBranches.length + otherBranches.length,
+    connectedTreeIds: validConnectedIds,
+    isUnified: daughterBranches.length > 0 || otherBranches.length > 0,
+  }
+}
+

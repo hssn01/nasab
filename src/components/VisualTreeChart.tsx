@@ -15,6 +15,7 @@ interface VisualTreeChartProps {
   root: Person
   selectedId: string | null
   currentId: string | null
+  isUnifiedView?: boolean
   onSelectPerson: (person: Person) => void
   onGoToEditorForPerson?: (person: Person) => void
   onRenamePerson?: (personId: string, name: string) => void
@@ -22,6 +23,7 @@ interface VisualTreeChartProps {
   onDeletePerson?: (personId: string) => void
   onAddWife?: (personId: string, wife: Wife) => void
   onRemoveWife?: (personId: string, index: number) => void
+  onLinkBranchForPerson?: (person: Person) => void
 }
 
 interface TreePosNode {
@@ -176,6 +178,7 @@ export function VisualTreeChart({
   root,
   selectedId,
   currentId,
+  isUnifiedView = false,
   onSelectPerson,
   onGoToEditorForPerson,
   onRenamePerson,
@@ -183,6 +186,7 @@ export function VisualTreeChart({
   onDeletePerson,
   onAddWife,
   onRemoveWife,
+  onLinkBranchForPerson,
 }: VisualTreeChartProps) {
 
   const containerRef = useRef<HTMLDivElement>(null)
@@ -192,8 +196,42 @@ export function VisualTreeChart({
   const dragStartRef = useRef({ x: 0, y: 0 })
   const panStartRef = useRef({ x: 0, y: 0 })
 
-  // Collapsible nodes state: by default only root is expanded
-  const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set([root.id]))
+  // Helper to collect all node IDs leading to connected branches
+  const branchPathIds = useMemo(() => {
+    const set = new Set<string>()
+    function scan(node: Person, path: string[]) {
+      const currentPath = [...path, node.id]
+      if (node.branchMeta && node.branchMeta.type !== 'main') {
+        currentPath.forEach((id) => set.add(id))
+      }
+      for (const child of node.children) {
+        scan(child, currentPath)
+      }
+    }
+    scan(root, [])
+    return set
+  }, [root])
+
+  // Collapsible nodes state: by default only root is expanded, plus any branch paths if unified
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(() => {
+    const set = new Set([root.id])
+    if (isUnifiedView) {
+      branchPathIds.forEach((id) => set.add(id))
+    }
+    return set
+  })
+
+  // Auto-expand branch paths whenever unified view is active or tree updates
+  useEffect(() => {
+    if (isUnifiedView && branchPathIds.size > 0) {
+      setExpandedIds((prev) => {
+        const next = new Set(prev)
+        next.add(root.id)
+        branchPathIds.forEach((id) => next.add(id))
+        return next
+      })
+    }
+  }, [isUnifiedView, branchPathIds, root.id])
 
   // Search state
   const [searchQuery, setSearchQuery] = useState('')
@@ -522,6 +560,8 @@ export function VisualTreeChart({
                   isSelected ? ' is-selected' : ''
                 }${isCurrent ? ' is-current' : ''}${isMatch ? ' is-match' : ''}${
                   zoom < 0.45 ? ' compact-mode' : ''
+                }${node.person.branchMeta && node.person.branchMeta.type !== 'main' ? ' card-branch' : ''}${
+                  node.person.branchMeta?.isVirtualContainer ? ' card-virtual-root' : ''
                 }`}
                 style={{
                   position: 'absolute',
@@ -537,9 +577,19 @@ export function VisualTreeChart({
                 }}
               >
                 <div className="visual-card-header">
-                  <span className={`badge badge-${node.person.gender.toLowerCase()}`}>
-                    {node.person.id}
-                  </span>
+                  {!node.person.branchMeta?.isVirtualContainer && (
+                    <span className={`badge badge-${node.person.gender.toLowerCase()}`}>
+                      {node.person.branchMeta?.originalId || node.person.id}
+                    </span>
+                  )}
+                  {node.person.branchMeta && node.person.branchMeta.type !== 'main' && !node.person.branchMeta.isVirtualContainer && (
+                    <span
+                      className={`branch-source-badge branch-${node.person.branchMeta.type}`}
+                      title={node.person.branchMeta.treeName}
+                    >
+                      {node.person.branchMeta.type === 'daughter-branch' ? '🧬' : node.person.branchMeta.type === 'brother-branch' ? '🤝' : '🌿'}
+                    </span>
+                  )}
                   {node.hasChildren && (
                     <button
                       type="button"
@@ -553,7 +603,7 @@ export function VisualTreeChart({
                 </div>
 
                 <div className="visual-card-name" dir="auto" title={node.person.name}>
-                  {node.person.name}
+                  {node.person.branchMeta?.isVirtualContainer ? 'الأصل المشترك' : node.person.name}
                 </div>
 
                 {node.person.wives && node.person.wives.length > 0 && (
@@ -632,7 +682,7 @@ export function VisualTreeChart({
                   🔍 إبراز سلسلة الأجداد في الشجرة
                 </button>
 
-                {actionPerson.gender === 'M' && (
+                {actionPerson.gender === 'M' && !isUnifiedView && (
                   <>
                     <button
                       type="button"
@@ -651,14 +701,35 @@ export function VisualTreeChart({
                   </>
                 )}
 
+                {actionPerson.gender === 'F' && onLinkBranchForPerson && !isUnifiedView && (
+                  <button
+                    type="button"
+                    className="modal-action-btn primary-action"
+                    onClick={() => {
+                      closeActionModal()
+                      onLinkBranchForPerson(actionPerson)
+                    }}
+                  >
+                    🧬 ربط فرع أو شجرة لهذه البنت (أبناؤها وذريتها)
+                  </button>
+                )}
 
-                <button
-                  type="button"
-                  className="modal-action-btn"
-                  onClick={() => setModalTab('rename')}
-                >
-                  ✏️ تعديل اسم الشخص
-                </button>
+                {isUnifiedView && actionPerson.branchMeta && actionPerson.branchMeta.type !== 'main' && (
+                  <p className="modal-branch-note">
+                    🔗 هذا الشخص من شجرة «{actionPerson.branchMeta.treeName}» — افتحها للتعديل.
+                  </p>
+                )}
+
+                {!isUnifiedView && (
+                  <button
+                    type="button"
+                    className="modal-action-btn"
+                    onClick={() => setModalTab('rename')}
+                  >
+                    ✏️ تعديل اسم الشخص
+                  </button>
+                )}
+
 
                 {onGoToEditorForPerson && (
                   <button

@@ -1,0 +1,1337 @@
+/* =============================================================================
+   PublicViewerPortal.css — Public Read-Only Tree Portal & Structured PDF Styles
+   ============================================================================= */
+
+.pv-root {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  min-height: 100dvh;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-body, system-ui, -apple-system, sans-serif);
+  direction: rtl;
+  user-select: text;
+}
+
+/* ── Top Header ── */
+.pv-header {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 18px;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.pv-header-start {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.pv-back-to-catalog-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full, 9999px);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+  white-space: nowrap;
+}
+
+.pv-back-to-catalog-btn:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-focus);
+}
+
+.pv-brand-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 15px;
+  font-weight: 750;
+  color: var(--accent);
+  letter-spacing: -0.02em;
+}
+
+.pv-brand-pill {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 7px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-radius: 9999px;
+}
+
+.pv-header-title-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.pv-header-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 750;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pv-header-counter-pill {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 9999px;
+  background: var(--bg-raised);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+/* ── View Navigation Tabs ── */
+.pv-nav-tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--bg-raised);
+  padding: 4px;
+  border-radius: var(--radius-lg, 10px);
+  border: 1px solid var(--border);
+}
+
+.pv-nav-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-md, 8px);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.pv-nav-tab:hover {
+  color: var(--text);
+}
+
+.pv-nav-tab.active {
+  background: var(--bg-surface);
+  color: var(--accent);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
+}
+
+.pv-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pv-btn-share {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 8px);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.pv-btn-share:hover {
+  background: var(--bg-hover);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* ── Public Catalog Landing Page ── */
+.pv-catalog-container {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 32px 20px 60px;
+  width: 100%;
+}
+
+.pv-catalog-hero {
+  text-align: center;
+  margin-bottom: 36px;
+}
+
+.pv-catalog-hero-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-radius: 9999px;
+  font-size: 12px;
+  font-weight: 700;
+  margin-bottom: 12px;
+}
+
+.pv-catalog-title {
+  margin: 0 0 8px;
+  font-size: 28px;
+  font-weight: 800;
+  color: var(--text);
+  letter-spacing: -0.02em;
+}
+
+.pv-catalog-desc {
+  margin: 0 auto;
+  max-width: 580px;
+  font-size: 15px;
+  color: var(--text-muted);
+  line-height: 1.6;
+}
+
+.pv-catalog-search-bar {
+  position: relative;
+  max-width: 540px;
+  margin: 24px auto 0;
+}
+
+.pv-catalog-search-input {
+  width: 100%;
+  padding: 12px 42px 12px 16px;
+  background: var(--bg-raised);
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-lg, 12px);
+  color: var(--text);
+  font-size: 15px;
+  font-family: inherit;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  outline: none;
+}
+
+.pv-catalog-search-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.pv-catalog-search-icon {
+  position: absolute;
+  top: 50%;
+  right: 14px;
+  transform: translateY(-50%);
+  color: var(--text-muted);
+  pointer-events: none;
+  font-size: 16px;
+}
+
+.pv-catalog-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(310px, 1fr));
+  gap: 18px;
+  margin-top: 32px;
+}
+
+.pv-tree-card {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl, 16px);
+  padding: 22px;
+  cursor: pointer;
+  position: relative;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+  overflow: hidden;
+}
+
+.pv-tree-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--accent), var(--accent-soft));
+  opacity: 0.6;
+  transition: opacity 0.2s ease;
+}
+
+.pv-tree-card:hover {
+  transform: translateY(-3px);
+  border-color: var(--accent);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+}
+
+.pv-tree-card:hover::before {
+  opacity: 1;
+}
+
+.pv-tree-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.pv-tree-card-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 750;
+  color: var(--text);
+  line-height: 1.35;
+}
+
+.pv-tree-progenitor {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin: 0 0 16px;
+}
+
+.pv-tree-progenitor strong {
+  color: var(--text);
+}
+
+.pv-tree-branch-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-radius: 9999px;
+  font-size: 11px;
+  font-weight: 600;
+  margin-bottom: 12px;
+  align-self: flex-start;
+}
+
+.pv-tree-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+  margin-top: auto;
+}
+
+.pv-tree-date {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.pv-tree-open-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--accent);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: transform 0.15s ease;
+}
+
+.pv-tree-card:hover .pv-tree-open-btn {
+  transform: translateX(-4px);
+}
+
+/* ── Search & Directory Tab ── */
+.pv-search-container {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 24px 16px 60px;
+  width: 100%;
+}
+
+.pv-search-input-box {
+  position: relative;
+  margin-bottom: 16px;
+}
+
+.pv-search-input {
+  width: 100%;
+  padding: 12px 42px 12px 40px;
+  background: var(--bg-surface);
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-lg, 12px);
+  color: var(--text);
+  font-size: 15px;
+  font-family: inherit;
+  outline: none;
+}
+
+.pv-search-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.pv-search-clear {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 14px;
+  padding: 4px 8px;
+}
+
+.pv-people-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.pv-person-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg, 12px);
+  cursor: pointer;
+  transition: transform 0.15s ease, border-color 0.15s ease;
+}
+
+.pv-person-row:hover {
+  transform: translateX(-2px);
+  border-color: var(--accent);
+}
+
+.pv-person-row.male {
+  border-right: 4px solid var(--male, #2563eb);
+}
+
+.pv-person-row.female {
+  border-right: 4px solid var(--female, #db2777);
+}
+
+.pv-person-row-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.pv-person-name-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.pv-person-name {
+  font-size: 15px;
+  font-weight: 750;
+  color: var(--text);
+}
+
+.pv-person-lineage {
+  font-size: 13px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pv-mother-tag-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 9999px;
+  background: #fdf2f8;
+  color: #be185d;
+  border: 1px solid #fbcfe8;
+}
+
+[data-theme='dark'] .pv-mother-tag-badge {
+  background: rgba(219, 39, 119, 0.15);
+  color: #f472b6;
+  border-color: rgba(219, 39, 119, 0.3);
+}
+
+/* ── Structured Family Register & PDF Tab ── */
+.pv-register-wrapper {
+  background: var(--bg);
+  min-height: calc(100vh - 60px);
+  padding: 20px 16px 80px;
+}
+
+.pv-register-toolbar {
+  max-width: 960px;
+  margin: 0 auto 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 12px 18px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg, 12px);
+}
+
+.pv-register-toolbar-title {
+  font-size: 14px;
+  font-weight: 750;
+  color: var(--text);
+}
+
+.pv-btn-print-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 20px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-md, 8px);
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(197, 160, 89, 0.3);
+  transition: transform 0.15s ease, filter 0.15s ease;
+}
+
+.pv-btn-print-action:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.08);
+}
+
+/* ── Printable Paper Document Preview ── */
+.pv-tribute-paper {
+  max-width: 960px;
+  margin: 0 auto;
+  background: #ffffff;
+  color: #1e1b18;
+  border: 1px solid #e0d8cc;
+  border-radius: 4px;
+  padding: 32px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+  font-family: 'Amiri', 'Traditional Arabic', serif, system-ui;
+}
+
+[data-theme='dark'] .pv-tribute-paper {
+  background: #181715;
+  color: #ede8df;
+  border-color: #3b352b;
+}
+
+.pv-doc-outer-border {
+  border: 2px solid #8c6d3b;
+  padding: 24px;
+  position: relative;
+}
+
+.pv-doc-inner-border {
+  border: 1px solid #c9b897;
+  padding: 24px 20px;
+}
+
+.pv-doc-header {
+  text-align: center;
+  margin-bottom: 28px;
+}
+
+.pv-doc-basmala {
+  font-size: 18px;
+  font-weight: bold;
+  color: #8c6d3b;
+  margin: 0 0 10px;
+}
+
+.pv-doc-badge {
+  display: inline-block;
+  font-size: 12px;
+  letter-spacing: 1px;
+  color: #8c7b64;
+  border: 1px solid #d4c5b0;
+  padding: 2px 14px;
+  border-radius: 9999px;
+  margin-bottom: 12px;
+}
+
+.pv-doc-title {
+  font-size: 26px;
+  font-weight: 800;
+  color: #4a3818;
+  margin: 0 0 8px;
+}
+
+[data-theme='dark'] .pv-doc-title {
+  color: #e5b967;
+}
+
+.pv-doc-progenitor {
+  font-size: 16px;
+  color: #5c4f3d;
+  margin: 0 0 14px;
+}
+
+[data-theme='dark'] .pv-doc-progenitor {
+  color: #c9b897;
+}
+
+.pv-doc-divider {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: #8c6d3b;
+  font-size: 14px;
+  margin: 16px 0;
+}
+
+.pv-doc-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  text-align: center;
+  background: #fdfbf7;
+  border: 1px solid #ede4d3;
+  padding: 12px;
+  border-radius: 8px;
+  margin-bottom: 28px;
+}
+
+[data-theme='dark'] .pv-doc-stats {
+  background: #23201b;
+  border-color: #3b352b;
+}
+
+.pv-stat-num {
+  font-size: 18px;
+  font-weight: 800;
+  color: #8c6d3b;
+}
+
+.pv-stat-lbl {
+  font-size: 12px;
+  color: #8c7b64;
+}
+
+/* ── Hierarchical Register Entries ── */
+.pv-register-entries {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.pv-entry-card {
+  border-bottom: 1px dashed #d9ccb8;
+  padding-bottom: 18px;
+}
+
+[data-theme='dark'] .pv-entry-card {
+  border-bottom-color: #443c30;
+}
+
+.pv-entry-breadcrumb {
+  font-size: 13px;
+  color: #8c7b64;
+  margin: 0 0 6px;
+  line-height: 1.4;
+}
+
+.pv-entry-breadcrumb-chain {
+  color: #8c6d3b;
+  font-weight: 600;
+}
+
+.pv-entry-father-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.pv-gen-badge {
+  font-size: 11px;
+  font-weight: 700;
+  background: #f2ede4;
+  color: #634f33;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+[data-theme='dark'] .pv-gen-badge {
+  background: #2e2820;
+  color: #d1b48c;
+}
+
+.pv-father-name {
+  font-size: 17px;
+  font-weight: 800;
+  color: #2b2319;
+}
+
+[data-theme='dark'] .pv-father-name {
+  color: #f5eedb;
+}
+
+.pv-wives-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 12.5px;
+  color: #5c4f3d;
+  margin-bottom: 10px;
+}
+
+[data-theme='dark'] .pv-wives-list {
+  color: #c0b29d;
+}
+
+.pv-wife-pill {
+  background: #f7f3ec;
+  border: 1px solid #e2d6c3;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+[data-theme='dark'] .pv-wife-pill {
+  background: #26211a;
+  border-color: #443c30;
+}
+
+.pv-children-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-right: 14px;
+  border-right: 2px solid #8c6d3b;
+  margin-top: 8px;
+}
+
+.pv-sons-block, .pv-daughters-block {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.pv-child-category-label {
+  font-size: 13px;
+  font-weight: 750;
+  color: #634f33;
+}
+
+[data-theme='dark'] .pv-child-category-label {
+  color: #d1b48c;
+}
+
+.pv-child-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.pv-child-item-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 13px;
+  background: #faf7f2;
+  border: 1px solid #e8decb;
+}
+
+[data-theme='dark'] .pv-child-item-chip {
+  background: #24201a;
+  border-color: #3b352b;
+}
+
+.pv-child-item-chip.male {
+  border-right: 3px solid #2563eb;
+}
+
+.pv-child-item-chip.female {
+  border-right: 3px solid #db2777;
+}
+
+.pv-has-sub-indicator {
+  font-size: 10px;
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: #f0e6d6;
+  color: #8c6d3b;
+  font-weight: 700;
+}
+
+.pv-mother-callout {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  background: #fff1f2;
+  color: #e11d48;
+  border: 1px solid #fecdd3;
+  padding: 1px 6px;
+  border-radius: 4px;
+  margin-right: 4px;
+}
+
+[data-theme='dark'] .pv-mother-callout {
+  background: rgba(225, 29, 72, 0.15);
+  color: #fda4af;
+  border-color: rgba(225, 29, 72, 0.3);
+}
+
+.pv-mother-assign-tag {
+  font-size: 11px;
+  color: #78716c;
+  background: #f5f5f4;
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+
+[data-theme='dark'] .pv-mother-assign-tag {
+  background: #292524;
+  color: #a8a29e;
+}
+
+/* ── Document Footer & Certification ── */
+.pv-doc-footer {
+  margin-top: 36px;
+  padding-top: 20px;
+  border-top: 1px solid #c9b897;
+  text-align: center;
+}
+
+.pv-cert-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  margin-bottom: 20px;
+}
+
+.pv-cert-box {
+  border: 1px solid #d4c5b0;
+  padding: 14px;
+  border-radius: 6px;
+  text-align: right;
+  font-size: 12px;
+}
+
+.pv-cert-box-title {
+  font-weight: bold;
+  color: #8c6d3b;
+  margin-bottom: 8px;
+}
+
+.pv-cert-line {
+  margin: 6px 0;
+  color: #5c4f3d;
+}
+
+.pv-cert-sig-line {
+  margin-top: 24px;
+  border-bottom: 1px dotted #8c7b64;
+  width: 80%;
+  margin-left: auto;
+}
+
+.pv-doc-closing {
+  font-size: 11px;
+  color: #8c7b64;
+  margin-top: 16px;
+}
+
+/* ── Print / PDF Media Query ── */
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 10mm;
+  }
+
+  body {
+    background: #ffffff !important;
+    color: #000000 !important;
+  }
+
+  .pv-header,
+  .pv-register-toolbar,
+  .pv-floating-controls,
+  .v-floating-controls,
+  .pv-back-to-catalog-btn,
+  .pv-nav-tabs,
+  .pv-btn-share {
+    display: none !important;
+  }
+
+  .pv-root,
+  .pv-register-wrapper {
+    background: transparent !important;
+    padding: 0 !important;
+  }
+
+  .pv-tribute-paper {
+    box-shadow: none !important;
+    border: none !important;
+    padding: 0 !important;
+    max-width: 100% !important;
+    color: #000 !important;
+    background: #fff !important;
+  }
+
+  .pv-entry-card {
+    page-break-inside: avoid;
+  }
+
+  .pv-doc-outer-border {
+    border: 2px solid #000 !important;
+  }
+
+  .pv-doc-inner-border {
+    border: 1px solid #333 !important;
+  }
+}
+
+/* ── Mobile Responsiveness ── */
+@media (max-width: 640px) {
+  .pv-header {
+    flex-wrap: wrap;
+    padding: 8px 12px;
+  }
+
+  .pv-nav-tabs {
+    order: 3;
+    width: 100%;
+    justify-content: center;
+    margin-top: 4px;
+  }
+
+  .pv-catalog-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .pv-tribute-paper {
+    padding: 12px;
+  }
+
+  .pv-doc-outer-border,
+  .pv-doc-inner-border {
+    padding: 12px 8px;
+  }
+
+  .pv-cert-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* =============================================================================
+   Modern Heritage Genealogical Book Page Styling
+   (Walking in the footsteps of traditional Ansab books: elegant, simple, refined)
+   ============================================================================= */
+
+.pv-book-page {
+  max-width: 880px;
+  margin: 0 auto;
+  background: var(--bg-surface, #ffffff);
+  color: var(--text, #1c1917);
+  padding: 38px 46px;
+  font-family: 'Amiri', 'Noto Naskh Arabic', 'Traditional Arabic', serif;
+  direction: rtl;
+  text-align: right;
+  border-radius: var(--radius-lg, 12px);
+  border: 1px solid var(--border);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.04);
+}
+
+[data-theme='dark'] .pv-book-page {
+  background: var(--bg-surface, #1a1816);
+  color: var(--text, #f5f5f4);
+  border-color: var(--border);
+}
+
+.pv-book-header {
+  text-align: center;
+  margin-bottom: 28px;
+  padding-bottom: 20px;
+  border-bottom: 1.5px solid var(--border);
+}
+
+.pv-book-basmala {
+  font-family: 'Amiri', serif;
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--accent);
+  margin: 0 0 4px;
+  letter-spacing: 0.5px;
+}
+
+.pv-book-salawat {
+  font-family: 'Amiri', serif;
+  font-size: 15px;
+  color: var(--text-muted);
+  margin: 0 0 10px;
+}
+
+.pv-book-main-title {
+  font-family: 'Amiri', serif;
+  font-size: 25px;
+  font-weight: 700;
+  color: var(--text);
+  margin: 0 0 10px;
+  letter-spacing: -0.01em;
+}
+
+.pv-book-progenitor-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 14px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-radius: 9999px;
+  font-family: 'Amiri', serif;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+/* ── Branch Entry (Family Unit) ── */
+.pv-book-entry {
+  background: var(--bg-raised, #fdfcfb);
+  border: 1px solid var(--border);
+  border-right: 3.5px solid var(--accent);
+  border-radius: 8px;
+  padding: 18px 22px;
+  margin-bottom: 20px;
+  page-break-inside: avoid;
+  break-inside: avoid;
+}
+
+[data-theme='dark'] .pv-book-entry {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+/* ── Branch Header ── */
+.pv-book-branch-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding-bottom: 10px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.pv-book-branch-title-wrap {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+.pv-book-branch-mark {
+  font-size: 15px;
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.pv-book-branch-title {
+  margin: 0;
+  font-family: 'Amiri', serif;
+  font-size: 19.5px;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1.6;
+}
+
+.pv-book-person-name {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.pv-book-ancestor-chain {
+  font-size: 17px;
+  font-weight: 400;
+  color: var(--text-muted);
+}
+
+.pv-book-branch-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.pv-book-gen-pill {
+  font-family: 'Amiri', serif;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 9999px;
+  background: var(--bg-surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+
+.pv-book-count-pill {
+  font-family: 'Amiri', serif;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 9999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.pv-book-count-pill.female {
+  background: rgba(219, 39, 119, 0.1);
+  color: var(--female, #db2777);
+}
+
+/* ── Subgroup (Sons / Daughters) ── */
+.pv-book-subgroup {
+  margin-bottom: 14px;
+}
+
+.pv-book-subhead {
+  font-family: 'Amiri', serif;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text);
+  margin: 8px 0 8px;
+  padding-bottom: 3px;
+  border-bottom: 1px dashed var(--border);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.pv-book-subhead-sym {
+  color: var(--accent);
+  font-weight: 800;
+}
+
+/* ── Sons Flow (Clean & Compact) ── */
+.pv-book-sons-flow {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 6px 14px;
+  margin-bottom: 6px;
+}
+
+.pv-book-son-item {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-family: 'Amiri', serif;
+  font-size: 16px;
+  line-height: 1.6;
+  padding: 2px 4px;
+}
+
+.pv-book-item-num {
+  font-family: 'Amiri', serif;
+  font-size: 15.5px;
+  font-weight: 700;
+  color: var(--accent);
+  min-width: 20px;
+  flex-shrink: 0;
+}
+
+.pv-book-item-num.female {
+  color: var(--female, #db2777);
+}
+
+.pv-book-item-name {
+  font-weight: 700;
+  color: var(--text);
+  font-size: 16.5px;
+}
+
+.pv-book-item-note {
+  font-size: 13px;
+  color: var(--text-muted);
+  font-weight: 400;
+  margin-right: 4px;
+}
+
+/* ── Daughters Flow (Clean Maternal documentation) ── */
+.pv-book-daughters-flow {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.pv-book-daughter-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-family: 'Amiri', serif;
+}
+
+.pv-book-daughter-lead {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 16px;
+  line-height: 1.6;
+}
+
+.pv-book-maternal-block {
+  margin-top: 3px;
+  margin-right: 24px;
+  padding: 5px 12px;
+  background: rgba(219, 39, 119, 0.04);
+  border-right: 2.5px solid var(--female, #db2777);
+  border-radius: 4px;
+  font-family: 'Amiri', serif;
+  font-size: 15px;
+  line-height: 1.8;
+  color: var(--text);
+}
+
+[data-theme='dark'] .pv-book-maternal-block {
+  background: rgba(219, 39, 119, 0.08);
+}
+
+.pv-book-maternal-line {
+  margin: 1px 0;
+}
+
+.pv-book-maternal-prefix {
+  font-weight: 700;
+  color: var(--female, #db2777);
+}
+
+.pv-book-maternal-kids {
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.pv-book-maternal-rel {
+  color: var(--text-muted);
+}
+
+.pv-book-maternal-husband {
+  font-weight: 600;
+  color: var(--text);
+}
+
+/* ── Mother / Wives Line ── */
+.pv-book-wife-row {
+  margin-top: 12px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-family: 'Amiri', serif;
+  font-size: 15px;
+  line-height: 1.8;
+  color: var(--text);
+}
+
+.pv-book-wife-bullet {
+  color: var(--accent);
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.pv-book-wife-content {
+  flex: 1;
+}
+
+.pv-book-wife-p {
+  margin: 0;
+}
+
+.pv-book-wife-target {
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.pv-book-wife-multi {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+/* ── Print / PDF Media Rules ── */
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 12mm 10mm;
+  }
+
+  body {
+    background: #ffffff !important;
+    color: #000000 !important;
+  }
+
+  .pv-book-page {
+    max-width: 100% !important;
+    padding: 0 !important;
+    box-shadow: none !important;
+    border: none !important;
+    color: #000 !important;
+    background: transparent !important;
+  }
+
+  .pv-book-entry {
+    background: #ffffff !important;
+    border: 1px solid #ccc !important;
+    border-right: 4px solid #000 !important;
+    box-shadow: none !important;
+    page-break-inside: avoid !important;
+    margin-bottom: 16mm !important;
+    padding: 16px 20px !important;
+  }
+
+  .pv-book-item-num {
+    color: #000 !important;
+  }
+
+  .pv-book-item-num.female {
+    color: #444 !important;
+  }
+
+  .pv-book-maternal-block {
+    background: #faf8f5 !important;
+    border-right: 2px solid #555 !important;
+    color: #000 !important;
+  }
+
+  .pv-book-wife-row {
+    border-top: 1px solid #ccc !important;
+    color: #000 !important;
+  }
+}
+

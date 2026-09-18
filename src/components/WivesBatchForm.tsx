@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import type { Person, Wife } from '../types'
+import type { Person, TreeMeta, Wife } from '../types'
 import {
   collectFemales,
   createExternalWife,
@@ -14,6 +14,9 @@ interface WivesBatchFormProps {
   lineageText: string
   isCurrent: boolean
   progressLabel: string
+  currentTreeId?: string
+  currentTreeName?: string
+  availableTrees?: TreeMeta[]
   onSave: (wives: Wife[]) => void
   onSaveAndContinue: (wives: Wife[]) => void
   onRename: (name: string) => void
@@ -35,6 +38,9 @@ export function WivesBatchForm({
   lineageText,
   isCurrent,
   progressLabel,
+  currentTreeId,
+  currentTreeName,
+  availableTrees,
   onSave,
   onSaveAndContinue,
   onRename,
@@ -73,8 +79,16 @@ export function WivesBatchForm({
     setExternalTribute('')
   }
 
-  function addTreeWife(personId: string) {
-    setWives((prev) => [...prev, createTreeWife(personId)])
+  function addTreeWife(
+    personId: string,
+    extra?: {
+      treeId?: string
+      treeName?: string
+      personName?: string
+      lineageLabel?: string
+    },
+  ) {
+    setWives((prev) => [...prev, createTreeWife(personId, extra)])
     resetDraft()
   }
 
@@ -194,7 +208,9 @@ export function WivesBatchForm({
                 {(index + 1).toLocaleString('ar')}
               </span>
               <span className="wives-editor-kind">
-                {wife.type === 'tree' ? 'من الشجرة' : 'من خارج الشجرة'}
+                {wife.type === 'tree'
+                  ? (wife.treeName ? `من: ${wife.treeName}` : 'من الشجرة الحالية')
+                  : 'من خارج الشجرة'}
               </span>
               <button
                 type="button"
@@ -208,8 +224,16 @@ export function WivesBatchForm({
             {wife.type === 'tree' ? (
               <div className="wives-editor-tree-row">
                 <span className="person-code female-code">{wife.personId}</span>
+                {wife.treeName && (
+                  <span className="other-tree-pill">
+                    {wife.treeName}
+                  </span>
+                )}
                 <span dir="rtl" className="twp-result-lineage">
-                  {getFemaleFullLineage(root, wife.personId)}
+                  {wife.lineageLabel ||
+                    (wife.personName
+                      ? `${wife.personName} (${wife.treeName || 'شجرة أخرى'})`
+                      : getFemaleFullLineage(root, wife.personId))}
                 </span>
               </div>
             ) : (
@@ -370,7 +394,10 @@ export function WivesBatchForm({
         <TreeWifePicker
           root={root}
           linkedIds={linkedIds}
-          onSelect={(personId) => addTreeWife(personId)}
+          currentTreeId={currentTreeId}
+          currentTreeName={currentTreeName}
+          availableTrees={availableTrees}
+          onSelect={(personId, extra) => addTreeWife(personId, extra)}
           onCreateAndLink={handleCreateAndLink}
           onCancel={resetDraft}
         />

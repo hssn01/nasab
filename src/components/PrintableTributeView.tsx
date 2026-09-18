@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react'
-import type { Person, Wife } from '../types'
+import type { Person, TreeLink, TreeMeta, Wife } from '../types'
 import {
   countPeople,
   motherDisplayLabel,
@@ -11,8 +11,11 @@ import '../PrintableTribute.css'
 interface PrintableTributeViewProps {
   root: Person
   treeName?: string
+  linkedFrom?: TreeLink
+  linkedTrees?: TreeMeta[]
   onGoBack: () => void
   onGoToChart?: () => void
+  onOpenTree?: (treeId: string) => void
 }
 
 // A "family entry" = one male in DFS order, with full lineage breadcrumb
@@ -72,8 +75,11 @@ function buildOutline(node: Person, depth: number): OutlineNode {
 
 export function PrintableTributeView({
   root,
+  linkedFrom,
+  linkedTrees,
   onGoBack,
   onGoToChart,
+  onOpenTree,
 }: PrintableTributeViewProps) {
   const [orientation, setOrientation] = useState<'portrait' | 'landscape'>('portrait')
   const [activeTab, setActiveTab] = useState<'register' | 'outline'>('register')
@@ -200,6 +206,34 @@ export function PrintableTributeView({
                 </p>
               </header>
 
+              {/* ── Linked Tree Context Banner (if branch) ── */}
+              {linkedFrom && (
+                <section className="tribute-linked-banner" aria-label="بيانات فرع النسب">
+                  <span className="tribute-linked-badge-icon">
+                    {linkedFrom.type === 'daughter-branch'
+                      ? '🧬'
+                      : linkedFrom.type === 'brother-branch'
+                      ? '🤝'
+                      : '🌿'}
+                  </span>
+                  <div className="tribute-linked-banner-content">
+                    <strong className="tribute-linked-title">
+                      {linkedFrom.type === 'daughter-branch'
+                        ? `فرع بنت العائلة: ${linkedFrom.personName || 'إحدى البنات'}`
+                        : linkedFrom.type === 'brother-branch'
+                        ? `فرع أخ الجد الأكبر: ${linkedFrom.personName || 'أخ الجد'}`
+                        : 'فرع عائلي مرتبط'}
+                    </strong>
+                    <span className="tribute-linked-sub">
+                      تتفرع وتتصل هذه الشجرة بالشجرة الرئيسية «{linkedFrom.mainTreeName}»
+                    </span>
+                    {linkedFrom.note && (
+                      <p className="tribute-linked-note">{linkedFrom.note}</p>
+                    )}
+                  </div>
+                </section>
+              )}
+
               {/* ── Dedication ── */}
               {showDedication && (
                 <section className="tribute-dedication">
@@ -247,6 +281,51 @@ export function PrintableTributeView({
                   showWives={showWives}
                   root={root}
                 />
+              )}
+
+              {/* ── Linked Branches Section ── */}
+              {linkedTrees && linkedTrees.length > 0 && (
+                <section className="tribute-linked-trees-section" aria-label="الأفرع المرتبطة">
+                  <div className="tribute-divider" aria-hidden="true"><span>✦ ✦ ✦</span></div>
+                  <h2 className="tribute-section-heading">الأفرع والشجرات العائلية المرتبطة</h2>
+                  <p className="tribute-section-sub">
+                    شجرات وأفرع متصلة بهذا المشجر من جهة البنات أو الإخوة
+                  </p>
+                  <div className="tribute-linked-trees-grid">
+                    {linkedTrees.map((lt) => {
+                      const l = lt.linkedFrom
+                      return (
+                        <div key={lt.id} className="tribute-linked-card">
+                          <div className="tribute-linked-card-header">
+                            <span className="tribute-linked-pill">
+                              {l?.type === 'daughter-branch'
+                                ? '🧬 فرع بنت'
+                                : l?.type === 'brother-branch'
+                                ? '🤝 فرع أخ'
+                                : '🌿 فرع مرتبط'}
+                            </span>
+                            <strong className="tribute-linked-name">{lt.name}</strong>
+                          </div>
+                          {l?.personName && (
+                            <p className="tribute-linked-detail">
+                              الصلة: <strong>{l.personName}</strong> {l.personId ? `(${l.personId})` : ''}
+                            </p>
+                          )}
+                          {l?.note && <p className="tribute-linked-note">{l.note}</p>}
+                          {onOpenTree && (
+                            <button
+                              type="button"
+                              className="compact-button tribute-open-tree-btn"
+                              onClick={() => onOpenTree(lt.id)}
+                            >
+                              عرض وثيقة هذا الفرع ←
+                            </button>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                </section>
               )}
 
               {/* ── Footer Certification ── */}

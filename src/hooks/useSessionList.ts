@@ -51,6 +51,9 @@ export function useSessionList() {
           const rootAncestor =
             remote.state?.root?.name || localMatch?.rootAncestor || remote.name
 
+          const linkedFrom =
+            remote.state?.linkedFrom || (remote as any).link || localMatch?.linkedFrom
+
           return {
             id: remote.id,
             name: remote.name,
@@ -58,6 +61,7 @@ export function useSessionList() {
             downloaded: isDownloaded,
             synced: true,
             rootAncestor,
+            linkedFrom,
           }
         })
 
@@ -72,6 +76,7 @@ export function useSessionList() {
             downloaded: true,
             synced: l.synced ?? false,
             rootAncestor: l.rootAncestor || l.state?.root?.name || l.name,
+            linkedFrom: l.linkedFrom || l.state?.linkedFrom,
           })
         }
 
@@ -91,6 +96,7 @@ export function useSessionList() {
             downloaded: true,
             synced: s.synced ?? true,
             rootAncestor: s.rootAncestor || s.state?.root?.name || s.name,
+            linkedFrom: s.linkedFrom || s.state?.linkedFrom,
           }))
         )
         setSource('local')
@@ -109,6 +115,7 @@ export function useSessionList() {
             downloaded: true,
             synced: s.synced ?? true,
             rootAncestor: s.rootAncestor || s.state?.root?.name || s.name,
+            linkedFrom: s.linkedFrom || s.state?.linkedFrom,
           }))
         )
         setSource('local')

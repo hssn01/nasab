@@ -11,9 +11,10 @@
   width: min(520px, 100%);
   background: var(--bg-raised);
   border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 40px;
-  box-shadow: 0 18px 55px oklch(0.35 0.02 70 / 0.08);
+  border-top: 3px solid var(--accent);
+  border-radius: 16px;
+  padding: 44px 40px;
+  box-shadow: 0 8px 32px oklch(0.35 0.02 70 / 0.10), 0 1px 4px oklch(0.35 0.02 70 / 0.06);
 }
 
 .eyebrow {
@@ -54,10 +55,11 @@
   justify-content: space-between;
   min-width: 0;
   gap: 18px;
-  min-height: 58px;
-  padding: 10px 20px;
+  min-height: 60px;
+  padding: 10px 24px;
   border-bottom: 1px solid var(--border);
-  background: var(--bg-raised);
+  background: linear-gradient(to bottom, var(--bg-raised), color-mix(in oklch, var(--bg-raised), var(--bg) 40%));
+  box-shadow: 0 1px 6px oklch(0.35 0.02 70 / 0.06);
   position: sticky;
   top: 0;
   z-index: 20;
@@ -76,13 +78,15 @@
 .brand-mark {
   display: grid;
   place-items: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 7px;
-  background: var(--accent-soft);
-  border: 1px solid var(--accent);
-  color: var(--accent);
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, var(--accent), color-mix(in oklch, var(--accent), black 20%));
+  border: none;
+  color: var(--accent-ink);
   font-size: 15px;
+  font-weight: 700;
+  box-shadow: 0 2px 8px color-mix(in oklch, var(--accent), transparent 55%);
 }
 
 .phases {
@@ -767,12 +771,16 @@ button.danger-text {
   color: var(--text);
   font-size: 12px;
   cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease;
 }
 
 .compact-button:hover {
   color: var(--text-strong);
   border-color: var(--accent);
+  background: var(--accent-soft);
 }
+
+
 
 .data-actions {
   display: flex;
@@ -801,6 +809,29 @@ button.danger-text {
   font-size: 12px;
 }
 
+/* ── Premium scrollbars ── */
+.sidebar::-webkit-scrollbar,
+.modal-card::-webkit-scrollbar,
+.link-tree-modal::-webkit-scrollbar,
+.twp-results::-webkit-scrollbar,
+.v-people-list::-webkit-scrollbar {
+  width: 5px;
+}
+
+.sidebar::-webkit-scrollbar-thumb,
+.modal-card::-webkit-scrollbar-thumb,
+.link-tree-modal::-webkit-scrollbar-thumb,
+.twp-results::-webkit-scrollbar-thumb,
+.v-people-list::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 4px;
+}
+
+.sidebar::-webkit-scrollbar-thumb:hover,
+.modal-card::-webkit-scrollbar-thumb:hover {
+  background: var(--accent);
+}
+
 .tree,
 .node-children {
   list-style: none;
@@ -811,7 +842,8 @@ button.danger-text {
 .node-children {
   margin-right: 10px;
   padding-right: 12px;
-  border-inline-start: 1px solid var(--border);
+  border-inline-start: 1.5px solid var(--accent-soft);
+
 }
 
 .node-row {
@@ -1041,7 +1073,8 @@ button.danger-text {
   align-items: center;
   padding: 14px 28px;
   border-bottom: 1px solid var(--border);
-  background: var(--bg-raised);
+  background: linear-gradient(to bottom, var(--bg-raised), color-mix(in oklch, var(--bg-raised), var(--bg) 40%));
+  box-shadow: 0 1px 6px oklch(0.35 0.02 70 / 0.06);
 }
 
 .home-content {
@@ -1093,37 +1126,66 @@ button.danger-text {
 
 .tree-list-item {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 16px 18px;
+  flex-direction: column;
+  gap: 0;
+  padding: 0;
   background: var(--bg-raised);
   border: 1px solid var(--border);
-  border-radius: 10px;
-  transition: border-color 140ms;
+  border-inline-end: 3px solid var(--accent);
+  border-radius: 12px;
+  box-shadow: var(--shadow-sm);
+  transition: border-color 180ms var(--ease-out), box-shadow 180ms var(--ease-out), transform 180ms var(--ease-out);
+  overflow: hidden;
 }
 
 .tree-list-item:hover {
-  border-color: var(--border-strong);
+  border-color: var(--accent);
+  box-shadow: 0 6px 22px oklch(0.58 0.14 72 / 0.13);
+  transform: translateY(-2px);
+}
+
+.tree-list-main-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 18px 20px;
 }
 
 .tree-list-info {
   min-width: 0;
+  flex: 1;
+}
+
+.tree-list-title-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.tree-list-meta-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 
 .tree-list-name {
-  font-size: 16px;
-  font-weight: 600;
+  font-size: 17px;
+  font-weight: 750;
   color: var(--text-strong);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  letter-spacing: -0.01em;
 }
 
 .tree-list-date {
   font-size: 12px;
   color: var(--text-dim);
-  margin-top: 3px;
 }
 
 .tree-list-actions {
@@ -1132,6 +1194,83 @@ button.danger-text {
   gap: 8px;
   flex-shrink: 0;
 }
+
+/* Session badge (downloaded / cloud-only) */
+.session-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 9px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+}
+
+.session-badge.downloaded {
+  background: var(--success-soft);
+  border-color: color-mix(in oklch, var(--success), transparent 45%);
+  color: color-mix(in oklch, var(--success), black 35%);
+}
+
+.session-badge.cloud-only {
+  background: var(--bg-sunken);
+  border-color: var(--border-strong);
+  color: var(--text-dim);
+}
+
+/* Session root tag */
+.session-root-tag {
+  font-size: 11px;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border: 1px solid color-mix(in oklch, var(--accent), transparent 55%);
+  border-radius: 6px;
+  padding: 1px 7px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+/* Home empty card */
+.home-empty-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 40px 24px;
+  background: var(--bg-raised);
+  border: 1px dashed var(--border-strong);
+  border-radius: 12px;
+  text-align: center;
+  color: var(--text-dim);
+}
+
+.home-empty-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-strong);
+  margin: 0;
+}
+
+.home-empty-sub {
+  font-size: 13px;
+  color: var(--text-dim);
+  max-width: 44ch;
+  margin: 0;
+  line-height: 1.5;
+}
+
+/* Orphan tree item (not linked) */
+.orphan-tree-item {
+  border-style: dashed;
+  opacity: 0.85;
+}
+
+.orphan-tree-item:hover {
+  opacity: 1;
+}
+
+
 
 /* Migration banner */
 
@@ -1399,15 +1538,15 @@ button.danger-text {
   background: var(--bg-raised);
   border: 1.5px solid var(--border);
   border-radius: 9px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+  box-shadow: var(--shadow-sm);
   cursor: pointer;
-  transition: transform 160ms, border-color 160ms, box-shadow 160ms, background 160ms;
+  transition: transform 160ms var(--ease-out), border-color 160ms var(--ease-out), box-shadow 160ms var(--ease-out), background 160ms var(--ease-out);
 }
 
 .visual-node-card:hover {
   transform: translateY(-2px);
   border-color: var(--accent);
-  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.22);
+  box-shadow: 0 8px 24px oklch(0.35 0.02 70 / 0.18);
   z-index: 5;
 }
 
@@ -1618,6 +1757,18 @@ button.danger-text {
   border-color: var(--danger);
   background: rgba(220, 38, 38, 0.1);
 }
+
+.modal-branch-note {
+  margin: 8px 0;
+  padding: 8px 12px;
+  background: var(--accent-soft);
+  border: 1px solid color-mix(in oklch, var(--accent), transparent 50%);
+  border-radius: 8px;
+  font-size: 0.84rem;
+  color: color-mix(in oklch, var(--accent), black 30%);
+  line-height: 1.5;
+}
+
 
 .modal-delete-section {
   margin-top: 8px;
@@ -2136,30 +2287,18 @@ button.danger-text {
   flex-direction: column;
   gap: 12px;
 }
-
+/* ── Tree list item (shared layout) ── */
 .tree-list-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 18px 22px;
-  background: var(--bg-raised);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  box-shadow: 0 2px 8px oklch(0.35 0.02 70 / 0.04);
-  transition: all 180ms cubic-bezier(0.25, 1, 0.5, 1);
-}
-
-.tree-list-item:hover {
-  border-color: var(--accent);
-  box-shadow: 0 4px 14px oklch(0.35 0.02 70 / 0.08);
-  transform: translateY(-1px);
+  /* Layout and hover defined earlier; this block adds flex-direction override
+     only for the older flat layout if used standalone */
 }
 
 .tree-list-info {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
   min-width: 0;
+  flex: 1;
 }
 
 .tree-list-title-row {
@@ -2170,10 +2309,10 @@ button.danger-text {
 }
 
 .tree-list-name {
-  font-size: 18px;
-  font-weight: 700;
+  font-size: 17px;
+  font-weight: 750;
   color: var(--text-strong);
-  font-family: var(--serif);
+  letter-spacing: -0.01em;
 }
 
 .session-root-tag {
@@ -2209,9 +2348,9 @@ button.danger-text {
 }
 
 .session-badge.downloaded {
-  background: oklch(0.93 0.05 145);
-  border: 1px solid oklch(0.82 0.1 145);
-  color: oklch(0.38 0.13 145);
+  background: var(--success-soft);
+  border: 1px solid color-mix(in oklch, var(--success), transparent 40%);
+  color: color-mix(in oklch, var(--success), black 30%);
 }
 
 .session-badge.cloud-only {
@@ -2662,10 +2801,1272 @@ button.phase-button.active {
   color: var(--accent-ink);
 }
 
+/* ==========================================================================
+   Linked Trees & Sub-Branches Feature
+   ========================================================================== */
+
+/* Modal Backdrop & Container */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(18, 14, 10, 0.65);
+  backdrop-filter: blur(4px);
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  animation: fadeIn 0.15s ease-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes scaleIn {
+  from { opacity: 0; transform: scale(0.96) translateY(8px); }
+  to   { opacity: 1; transform: scale(1)    translateY(0); }
+}
+
+.link-tree-modal {
+  background: var(--bg-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: 16px;
+  width: 100%;
+  max-width: 580px;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: 0 20px 60px oklch(0.2 0.02 60 / 0.28), 0 4px 16px oklch(0.2 0.02 60 / 0.12);
+  display: flex;
+  flex-direction: column;
+  animation: scaleIn 0.2s var(--ease-out) both;
+}
+
+.modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 18px 22px 14px;
+  border-bottom: 1px solid var(--border, #ebe5dc);
+}
+
+.modal-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.modal-icon-badge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: var(--accent-soft, #f7efe4);
+  color: var(--accent, #946c38);
+  font-size: 20px;
+}
+
+.modal-title {
+  font-size: 17px;
+  font-weight: 700;
+  margin: 0;
+  color: var(--text-strong, #221c15);
+}
+
+.modal-subtitle {
+  font-size: 13px;
+  color: var(--text-dim, #7a6e60);
+  margin: 3px 0 0;
+}
+
+.modal-close-btn {
+  background: transparent;
+  border: none;
+  font-size: 18px;
+  color: var(--text-dim, #7a6e60);
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 6px;
+  transition: all 0.15s;
+}
+
+.modal-close-btn:hover {
+  background: var(--bg-sunken, #f5f1eb);
+  color: var(--text-strong, #221c15);
+}
+
+/* Mode tabs */
+.link-mode-tabs {
+  display: flex;
+  padding: 12px 22px 0;
+  gap: 8px;
+  border-bottom: 1px solid var(--border, #ebe5dc);
+}
+
+.link-tab-btn {
+  flex: 1;
+  padding: 10px 12px;
+  border: none;
+  border-bottom: 2.5px solid transparent;
+  background: transparent;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-dim, #7a6e60);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.link-tab-btn.active {
+  color: var(--accent, #946c38);
+  border-bottom-color: var(--accent, #946c38);
+  background: var(--accent-soft, #fdf9f4);
+  border-radius: 8px 8px 0 0;
+}
+
+/* Form Styles */
+.link-tree-form {
+  padding: 18px 22px 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.form-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-strong, #221c15);
+}
+
+.form-select,
+.form-input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border, #dfd7cc);
+  border-radius: 8px;
+  background: var(--bg-sunken, #faf8f5);
+  font-size: 14px;
+  color: var(--text-strong, #221c15);
+  font-family: inherit;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.form-select:focus,
+.form-input:focus {
+  outline: none;
+  border-color: var(--accent, #946c38);
+  box-shadow: 0 0 0 3px var(--accent-soft, #f7efe4);
+}
+
+.form-hint {
+  font-size: 12px;
+  color: var(--text-dim, #7a6e60);
+  line-height: 1.4;
+}
+
+.form-error-banner {
+  padding: 10px 14px;
+  background: var(--danger-soft);
+  border: 1px solid color-mix(in oklch, var(--danger), transparent 40%);
+  color: var(--danger);
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+/* Link Type Card Selector */
+.link-type-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+}
+
+.link-type-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px;
+  border: 1.5px solid var(--border, #dfd7cc);
+  border-radius: 10px;
+  background: var(--bg-sunken, #faf8f5);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.link-type-card:hover {
+  border-color: var(--accent-strong, #b58d55);
+  background: var(--bg-raised, #ffffff);
+}
+
+.link-type-card.selected {
+  border-color: var(--accent, #946c38);
+  background: var(--accent-soft, #fcf8f2);
+  box-shadow: 0 0 0 2px var(--accent, #946c38);
+}
+
+.link-type-card input[type="radio"] {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+}
+
+.link-type-card .card-icon {
+  font-size: 22px;
+}
+
+.link-type-card .card-body strong {
+  display: block;
+  font-size: 13px;
+  color: var(--text-strong, #221c15);
+  margin-bottom: 2px;
+}
+
+.link-type-card .card-body p {
+  font-size: 11px;
+  color: var(--text-dim, #7a6e60);
+  margin: 0;
+  line-height: 1.35;
+}
+
+/* Link Details Box */
+.link-details-box {
+  background: var(--bg-sunken, #faf8f5);
+  border: 1px dashed var(--border-strong, #dfd7cc);
+  border-radius: 10px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.submit-link-btn {
+  font-size: 14px;
+  padding: 10px 18px;
+}
+
+/* ── HomeScreen Grouping & Nested Branches ── */
+.tree-list-main-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+}
+
+.session-branches-count-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 2px 8px;
+  background: var(--success-soft);
+  border: 1px solid color-mix(in oklch, var(--success), transparent 45%);
+  color: color-mix(in oklch, var(--success), black 35%);
+  border-radius: 999px;
+  margin-inline-start: 8px;
+}
+
+.link-branch-btn {
+  border-color: color-mix(in oklch, var(--accent), transparent 45%);
+  color: var(--accent);
+  background: var(--accent-soft);
+  font-weight: 600;
+  transition: background var(--duration) var(--ease-out), border-color var(--duration) var(--ease-out), color var(--duration) var(--ease-out);
+}
+
+.link-branch-btn:hover {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+}
+
+/* Viewer button */
+.viewer-action-btn {
+  color: var(--male);
+  border-color: color-mix(in oklch, var(--male), transparent 55%);
+  background: var(--male-soft);
+}
+
+.viewer-action-btn:hover {
+  background: var(--male);
+  border-color: var(--male);
+  color: #fff;
+}
+
+/* Unlink button */
+.unlink-action-btn {
+  color: var(--text-dim);
+  border-color: var(--border-strong);
+  background: transparent;
+}
+
+.unlink-action-btn:hover {
+  color: var(--danger);
+  border-color: var(--danger);
+  background: var(--danger-soft);
+}
+
+.tree-branches-wrapper {
+  width: 100%;
+  padding: 14px 18px 16px;
+  border-top: 1px dashed var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: color-mix(in oklch, var(--bg-sunken), var(--bg-raised) 50%);
+}
+
+.tree-branches-indicator {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-dim);
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.tree-branch-arrow {
+  font-size: 15px;
+  color: var(--accent);
+}
+
+.tree-branches-sublist {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-inline-start: 12px;
+  border-inline-start: 2px solid var(--accent-soft);
+  padding-inline-start: 14px;
+}
+
+.tree-branch-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow-sm);
+  transition: border-color var(--duration) var(--ease-out), box-shadow var(--duration) var(--ease-out), transform var(--duration) var(--ease-out);
+}
+
+.tree-branch-item:hover {
+  border-color: var(--accent);
+  box-shadow: 0 4px 12px oklch(0.58 0.14 72 / 0.1);
+  transform: translateX(-2px);
+}
+
+.tree-branch-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  flex: 1;
+}
+
+.tree-branch-title-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.tree-branch-title {
+  font-size: 14.5px;
+  font-weight: 650;
+  color: var(--text-strong);
+}
+
+.tree-branch-person-tag {
+  font-size: 12px;
+  color: var(--text-dim);
+  font-weight: 500;
+  font-style: italic;
+}
+
+.tree-branch-note-text {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin: 0;
+  line-height: 1.4;
+}
+
+.tree-branch-meta-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-top: 2px;
+}
+
+.tree-branch-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+/* Link Badges */
+.link-badge-pill,
+.link-type-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+
+.link-badge-pill.daughter-branch,
+.link-type-pill.daughter-branch {
+  background: var(--female-soft);
+  border: 1px solid color-mix(in oklch, var(--female), transparent 55%);
+  color: var(--female);
+}
+
+.link-badge-pill.brother-branch,
+.link-type-pill.brother-branch {
+  background: var(--male-soft);
+  border: 1px solid color-mix(in oklch, var(--male), transparent 55%);
+  color: var(--male);
+}
+
+.link-badge-pill.other,
+.link-type-pill.other {
+  background: var(--bg-sunken);
+  border: 1px solid var(--border-strong);
+  color: var(--text-dim);
+}
+
+.downloaded-mini {
+  background: var(--success-soft);
+  color: color-mix(in oklch, var(--success), black 30%);
+  border: 1px solid color-mix(in oklch, var(--success), transparent 45%);
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+.cloud-mini {
+  background: var(--male-soft);
+  color: var(--male);
+  border: 1px solid color-mix(in oklch, var(--male), transparent 50%);
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+.orphan-branches-block {
+  margin-top: 24px;
+  padding-top: 18px;
+  border-top: 2px dashed var(--border, #dfd7cc);
+}
+
+.orphan-branches-title {
+  font-size: 15px;
+  font-weight: 700;
+  margin-bottom: 12px;
+  color: var(--text-dim, #7a6e60);
+}
+
+/* ── Setup screen banner for linked tree ── */
+.setup-linked-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  margin: 14px 0 18px;
+  background: var(--accent-soft);
+  border: 1.5px solid color-mix(in oklch, var(--accent), transparent 40%);
+  border-radius: 10px;
+}
+
+.setup-linked-banner .badge-icon {
+  font-size: 24px;
+}
+
+.setup-linked-banner strong {
+  display: block;
+  font-size: 14px;
+  color: var(--text-strong);
+}
+
+.setup-linked-banner p {
+  font-size: 12px;
+  color: var(--text);
+  margin: 2px 0 0;
+}
+
+/* ── Topbar pill in TreeApp ── */
+.linked-topbar-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  background: var(--accent-soft);
+  border: 1px solid color-mix(in oklch, var(--accent), transparent 45%);
+  color: color-mix(in oklch, var(--accent), black 25%);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.linked-topbar-pill:hover {
+  background: color-mix(in oklch, var(--accent-soft), var(--accent) 8%);
+  border-color: var(--accent);
+}
+
+/* ── Printable Tribute View: Linked Banner & Section ── */
+.tribute-linked-banner {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 18px;
+  margin: 14px auto 18px;
+  background: var(--accent-soft);
+  border: 1.5px solid color-mix(in oklch, var(--accent), transparent 40%);
+  border-radius: 8px;
+  max-width: 680px;
+}
+
+.tribute-linked-badge-icon {
+  font-size: 26px;
+}
+
+.tribute-linked-banner-content {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.tribute-linked-title {
+  font-size: 14.5px;
+  color: var(--text-strong);
+}
+
+.tribute-linked-sub {
+  font-size: 12.5px;
+  color: var(--text);
+}
+
+.tribute-linked-note {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin: 2px 0 0;
+  font-style: italic;
+}
+
+.tribute-linked-trees-section {
+  margin: 28px 0 20px;
+  padding: 0 10px;
+}
+
+.tribute-linked-trees-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 14px;
+  margin-top: 14px;
+}
+
+.tribute-linked-card {
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-raised);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  transition: border-color 160ms, box-shadow 160ms;
+}
+
+.tribute-linked-card:hover {
+  border-color: var(--accent);
+  box-shadow: var(--shadow-sm);
+}
+
+.tribute-linked-card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tribute-linked-pill {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: var(--accent-soft);
+  border: 1px solid color-mix(in oklch, var(--accent), transparent 50%);
+  color: color-mix(in oklch, var(--accent), black 20%);
+}
+
+.tribute-linked-name {
+  font-size: 14px;
+  color: var(--text-strong);
+}
+
+.tribute-linked-detail {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin: 0;
+}
+
+.tribute-open-tree-btn {
+  margin-top: 4px;
+  font-size: 11.5px;
+  align-self: flex-start;
+}
+
+@media print {
+  .tribute-open-tree-btn,
+  .print-hide-btn {
+    display: none !important;
+  }
+}
+
+/* ── Tree Wife Picker (Cross-Tree Wife Selection Modal) ── */
+
+@keyframes twpFadeIn {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.spin {
+  display: inline-block;
+  animation: spin 1s linear infinite;
+}
+
+.twp-overlay {
+  position: fixed;
+  inset: 0;
+  background: oklch(0.15 0.02 60 / 0.65);
+  backdrop-filter: blur(4px);
+  z-index: 1200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.twp-panel {
+  width: min(640px, 96vw);
+  max-height: 88vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: 14px;
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+  animation: twpFadeIn 0.16s ease-out;
+}
+
+.twp-header {
+  padding: 18px 22px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  background: var(--bg-sunken);
+}
+
+.twp-title {
+  font-size: 1.15rem;
+  font-weight: 700;
+  margin: 0;
+  color: var(--text-strong);
+}
+
+.twp-subtitle {
+  font-size: 0.82rem;
+  color: var(--text-dim);
+  margin: 4px 0 0;
+}
+
+.twp-close {
+  border: none;
+  background: transparent;
+  font-size: 24px;
+  line-height: 1;
+  cursor: pointer;
+  color: var(--text-dim);
+  padding: 4px 8px;
+  border-radius: 6px;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.twp-close:hover {
+  background: var(--bg-sunken);
+  color: var(--text-strong);
+}
+
+.twp-tree-selector-row {
+  padding: 12px 22px;
+  background: var(--bg-sunken);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.twp-tree-select {
+  font-size: 0.94rem;
+  font-weight: 600;
+  padding: 9px 12px;
+  border: 1.5px solid var(--accent);
+  border-radius: 8px;
+  background: var(--bg-raised);
+  color: var(--text-strong);
+  box-shadow: var(--shadow-sm);
+  cursor: pointer;
+}
+
+.twp-tree-select:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.twp-search-row {
+  padding: 14px 22px 8px;
+}
+
+.twp-search-input {
+  width: 100%;
+  padding: 10px 14px;
+  font-size: 0.95rem;
+  border: 1px solid var(--border, #d8d0c5);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--text, #2b1f11);
+  box-sizing: border-box;
+}
+
+.twp-search-input:focus {
+  outline: none;
+  border-color: var(--accent, #b48a3c);
+  box-shadow: 0 0 0 2px rgba(180, 138, 60, 0.2);
+}
+
+.twp-filter-row {
+  padding: 0 22px 10px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.twp-filter-label {
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: var(--text-muted, #736555);
+}
+
+.twp-father-select {
+  flex: 1;
+  padding: 6px 10px;
+  font-size: 0.88rem;
+  border-radius: 6px;
+  border: 1px solid var(--border, #d8d0c5);
+  background: #fff;
+}
+
+.twp-results {
+  flex: 1;
+  overflow-y: auto;
+  list-style: none;
+  margin: 0;
+  padding: 8px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 180px;
+  max-height: 360px;
+}
+
+.twp-result-item {
+  padding: 10px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-sunken);
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  transition: all 0.15s var(--ease-out);
+}
+
+.twp-result-item:hover,
+.twp-result-item:focus-visible {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  box-shadow: var(--shadow-sm);
+  outline: none;
+}
+
+.twp-result-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.twp-result-lineage {
+  font-size: 0.96rem;
+  font-weight: 600;
+  color: var(--text-strong);
+}
+
+.other-tree-pill {
+  font-size: 0.74rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: var(--accent-soft);
+  color: color-mix(in oklch, var(--accent), black 20%);
+  border: 1px solid color-mix(in oklch, var(--accent), transparent 45%);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.twp-result-father {
+  font-size: 0.82rem;
+  color: var(--text-dim);
+}
+
+.twp-result-father-id {
+  font-family: var(--mono);
+  opacity: 0.8;
+}
+
+.twp-empty {
+  padding: 36px 16px;
+  text-align: center;
+  color: var(--text-dim);
+  font-size: 0.92rem;
+}
+
+.twp-create-link-row {
+  padding: 10px 22px;
+  border-top: 1px solid var(--border);
+}
+
+.twp-create-link {
+  width: 100%;
+  padding: 8px 14px;
+  font-size: 0.88rem;
+  background: transparent;
+  border: 1px dashed var(--accent);
+  border-radius: 8px;
+  color: var(--accent);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.twp-create-link:hover {
+  background: var(--accent-soft);
+}
+
+.twp-cross-tree-hint {
+  margin: 10px 22px;
+  padding: 10px 14px;
+  background: var(--accent-soft);
+  border: 1px solid color-mix(in oklch, var(--accent), transparent 50%);
+  border-radius: 8px;
+  font-size: 0.83rem;
+  color: color-mix(in oklch, var(--accent), black 25%);
+  line-height: 1.5;
+}
+
+.twp-loading-box,
+.twp-error-box {
+  padding: 40px 20px;
+  text-align: center;
+  color: var(--text-dim);
+}
+
+.twp-error-box {
+  color: var(--danger);
+}
+
+.twp-create-form {
+  padding: 16px 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow-y: auto;
+}
+
+.twp-create-desc {
+  font-size: 0.88rem;
+  color: var(--text-dim);
+  margin: 0;
+  line-height: 1.5;
+}
+
+.twp-create-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--text-strong);
+}
+
+.twp-create-field select,
+.twp-create-field input {
+  padding: 8px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--bg-raised);
+  color: var(--text-strong);
+  font-size: 0.92rem;
+}
+
+.twp-create-error {
+  color: var(--danger);
+  font-size: 0.85rem;
+  margin: 0;
+}
+
+.twp-create-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.twp-footer {
+  padding: 12px 22px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  justify-content: flex-end;
+  background: var(--bg-sunken);
+}
 
 
+/* ── Unified Multi-Tree View ─────────────────────────────────────────── */
+
+.unified-view-banner {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 10;
+  padding: 8px 22px;
+  background: linear-gradient(90deg, color-mix(in oklch, var(--success), black 30%) 0%, color-mix(in oklch, var(--success), black 45%) 100%);
+  color: color-mix(in oklch, var(--success), white 55%);
+  font-size: 0.84rem;
+  text-align: center;
+  border-bottom: 1px solid color-mix(in oklch, var(--success), transparent 60%);
+  letter-spacing: 0.01em;
+}
+
+.unified-view-banner strong {
+  color: var(--success-soft);
+  margin-left: 4px;
+}
+
+/* Branch-source node cards */
+.visual-node-card.card-branch {
+  border-width: 2px;
+}
+
+.visual-node-card.card-branch.card-m {
+  border-color: var(--male);
+  background: var(--male-soft);
+  box-shadow: 0 2px 8px color-mix(in oklch, var(--male), transparent 75%);
+}
+
+.visual-node-card.card-branch.card-f {
+  border-color: var(--female);
+  background: var(--female-soft);
+  box-shadow: 0 2px 8px color-mix(in oklch, var(--female), transparent 75%);
+}
+
+/* Virtual container (common ancestor root) */
+.visual-node-card.card-virtual-root {
+  border: 2px dashed var(--border-strong);
+  background: transparent;
+  opacity: 0.65;
+  cursor: default;
+  pointer-events: none;
+  box-shadow: none;
+  min-height: unset;
+  padding: 6px 12px;
+}
+
+.visual-node-card.card-virtual-root .visual-toggle-btn {
+  pointer-events: all;
+}
+
+.visual-node-card.card-virtual-root .visual-card-name {
+  color: var(--text-dim);
+  font-style: italic;
+  font-size: 0.78rem;
+  text-align: center;
+}
 
 
+/* Branch source mini-badge on the card header */
+.branch-source-badge {
+  font-size: 13px;
+  line-height: 1;
+  display: inline-block;
+  border-radius: 50%;
+  padding: 1px 3px;
+  cursor: help;
+}
+
+.branch-source-badge.branch-daughter-branch {
+  background: color-mix(in oklch, var(--male), transparent 80%);
+  border: 1px solid color-mix(in oklch, var(--male), transparent 55%);
+  color: var(--male);
+}
+
+.branch-source-badge.branch-brother-branch {
+  background: color-mix(in oklch, var(--accent), transparent 82%);
+  border: 1px solid color-mix(in oklch, var(--accent), transparent 55%);
+  color: color-mix(in oklch, var(--accent), black 15%);
+}
+
+.branch-source-badge.branch-other {
+  background: color-mix(in oklch, var(--success), transparent 80%);
+  border: 1px solid color-mix(in oklch, var(--success), transparent 55%);
+  color: color-mix(in oklch, var(--success), black 20%);
+}
+
+/* ── Daughter Picker in LinkTreeModal ──────────────────────────────────── */
+.selected-female-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  background: var(--female-soft);
+  border: 1.5px solid color-mix(in oklch, var(--female), transparent 40%);
+  border-radius: 8px;
+  margin-top: 6px;
+}
+
+.selected-female-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.selected-female-name {
+  font-size: 1rem;
+  color: var(--female);
+}
+
+.selected-female-check {
+  font-size: 0.8rem;
+  color: color-mix(in oklch, var(--success), black 20%);
+  background: var(--success-soft);
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-weight: 600;
+}
+
+.female-search-picker {
+  position: relative;
+}
+
+.female-picker-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  max-height: 220px;
+  overflow-y: auto;
+  background: #ffffff;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  z-index: 50;
+  margin-top: 4px;
+}
+
+.female-picker-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  text-align: right;
+  border-bottom: 1px solid #f3f4f6;
+  transition: background 0.15s ease;
+}
+
+.female-picker-item:hover {
+  background: var(--female-soft);
+}
+
+.female-picker-details {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.female-picker-name {
+  font-weight: 700;
+  color: var(--text-strong);
+  font-size: 0.95rem;
+}
+
+.female-picker-lineage {
+  font-size: 0.78rem;
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.female-picker-action {
+  font-size: 0.8rem;
+  color: var(--female);
+  font-weight: 600;
+  padding: 4px 8px;
+  background: var(--female-soft);
+  border-radius: 4px;
+}
+
+.female-picker-empty {
+  padding: 12px;
+  text-align: center;
+  color: var(--text-dim);
+  font-size: 0.88rem;
+}
+
+.selected-female-text-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.selected-female-lineage {
+  font-size: 0.8rem;
+  color: var(--female);
+}
+
+.link-mode-help-banner {
+  margin-top: 10px;
+  padding: 10px 14px;
+  background: var(--success-soft);
+  border: 1px solid color-mix(in oklch, var(--success), transparent 50%);
+  border-radius: 8px;
+  font-size: 0.85rem;
+  color: color-mix(in oklch, var(--success), black 30%);
+  line-height: 1.5;
+}
+
+.link-mode-help-banner strong {
+  color: color-mix(in oklch, var(--success), black 40%);
+}
+
+/* ── Topbar Linked Tree Badge & Unlink Button ── */
+.linked-tree-header-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px;
+  background: var(--success-soft);
+  border: 1px solid color-mix(in oklch, var(--success), transparent 45%);
+  border-radius: 20px;
+  font-size: 0.82rem;
+  color: color-mix(in oklch, var(--success), black 35%);
+  font-weight: 500;
+  transition: background var(--duration, 180ms) ease;
+}
+
+.linked-tree-header-badge .badge-icon {
+  font-size: 1rem;
+}
+
+.unlink-mini-btn {
+  padding: 2px 10px;
+  font-size: 0.76rem;
+  background: var(--bg-raised);
+  border: 1px solid color-mix(in oklch, var(--danger), transparent 40%);
+  color: var(--danger);
+  border-radius: 12px;
+  cursor: pointer;
+  font-weight: 600;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.unlink-mini-btn:hover {
+  background: var(--danger-soft);
+  border-color: var(--danger);
+}
+
+.selected-target-tree-badge {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: var(--success-soft);
+  border: 1.5px solid color-mix(in oklch, var(--success), transparent 45%);
+  border-radius: 8px;
+  padding: 10px 14px;
+  color: color-mix(in oklch, var(--success), black 30%);
+}
+
+.selected-target-tree-badge strong {
+  color: color-mix(in oklch, var(--success), black 40%);
+  font-size: 0.95rem;
+}
+
+.badge-hint {
+  font-size: 0.8rem;
+  color: color-mix(in oklch, var(--success), black 25%);
+  opacity: 0.9;
+}
 
 
 

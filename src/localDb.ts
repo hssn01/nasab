@@ -122,7 +122,14 @@ export async function downloadSessionFromSupabase(
   supabase: SupabaseClient
 ): Promise<void> {
   // First try fetching from 'sessions' table, fallback to 'trees' table
-  let sessionData: { id: string; name: string; state?: TreeState; updated_at: string } | null = null
+  let sessionData: {
+    id: string
+    name: string
+    state?: TreeState
+    updated_at: string
+    link?: any
+    linkedFrom?: any
+  } | null = null
 
   const { data: tree, error: tErr } = await supabase
     .from('trees')
@@ -149,16 +156,9 @@ export async function downloadSessionFromSupabase(
     throw new Error('Failed to fetch session data')
   }
 
-  // Fetch persons if a persons table exists, otherwise extract from state.root
+  // Extract persons from state.root
   let persons: DbPerson[] = []
-  const { data: fetchedPersons, error: pErr } = await supabase
-    .from('persons')
-    .select('*')
-    .eq('sessionId', sessionId)
-
-  if (!pErr && fetchedPersons && fetchedPersons.length > 0) {
-    persons = fetchedPersons
-  } else if (sessionData.state?.root) {
+  if (sessionData.state?.root) {
     persons = extractPersons(sessionData.state.root, sessionId, sessionData.updated_at)
   }
 
@@ -182,6 +182,7 @@ export async function downloadSessionFromSupabase(
     downloaded: true,
     synced: true,
     rootAncestor,
+    linkedFrom: sessionData.link || sessionData.linkedFrom || sessionData.state?.linkedFrom,
   }
 
   await db.put('sessions', localSession)
@@ -229,6 +230,7 @@ export async function saveSessionLocally(
     synced: markSynced,
     updated_at: session.updated_at || new Date().toISOString(),
     rootAncestor: session.state?.root?.name || session.name,
+    linkedFrom: session.linkedFrom || session.state?.linkedFrom,
   }
   await db.put('sessions', updatedSession)
 
