@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { Person, TreeMeta } from '../types'
+import type { Person, TreeMeta, Session } from '../types'
 import {
   collectFemalesWithLineage,
   collectMalesDFS,
@@ -7,6 +7,7 @@ import {
 } from '../treeUtils'
 import { fetchTreeState, getCachedState, getCachedTreeList } from '../db'
 import { getSession, getAllSessions } from '../localDb'
+import './TreeWifePicker.css'
 
 // ── Arabic normalization ─────────────────────────────────────────────────────
 function normalizeArabic(text: string): string {
@@ -78,10 +79,10 @@ export function TreeWifePicker({
         setTrees(cached)
       } else {
         getAllSessions()
-          .then((sessions) => {
+          .then((sessions: Session[]) => {
             if (sessions.length > 0) {
               setTrees(
-                sessions.map((s) => ({
+                sessions.map((s: Session) => ({
                   id: s.id,
                   name: s.name,
                   updated_at: s.updated_at,

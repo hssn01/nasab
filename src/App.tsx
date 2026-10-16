@@ -54,50 +54,282 @@ function formatDate(iso: string) {
   }).format(new Date(iso))
 }
 
-function getUrlParams(): { treeId: string | null; view: 'editor' | 'chart' | 'print' | 'viewer' } {
+function getUrlParams(): { treeId: string | null; view: 'editor' | 'chart' | 'print' | 'viewer' | 'stepped-editor' } {
   const params = new URLSearchParams(window.location.search)
   const v = params.get('view')
   return {
     treeId: params.get('t'),
-    view: v === 'viewer' ? 'viewer' : v === 'chart' ? 'chart' : v === 'print' ? 'print' : 'editor',
+    view:
+      v === 'viewer'
+        ? 'viewer'
+        : v === 'chart'
+        ? 'chart'
+        : v === 'print'
+        ? 'print'
+        : v === 'stepped-editor'
+        ? 'stepped-editor'
+        : 'editor',
   }
+}
+
+const EDITOR_PASSCODE = '2233'
+const STORAGE_ACCESS_KEY = 'nasab_editor_unlocked'
+
+function isEditorUnlocked(): boolean {
+  try {
+    return sessionStorage.getItem(STORAGE_ACCESS_KEY) === 'true'
+  } catch {
+    return false
+  }
+}
+
+function setEditorUnlocked(unlocked: boolean) {
+  try {
+    if (unlocked) {
+      sessionStorage.setItem(STORAGE_ACCESS_KEY, 'true')
+    } else {
+      sessionStorage.removeItem(STORAGE_ACCESS_KEY)
+    }
+  } catch {}
+}
+
+// ── Editor Code Modal ─────────────────────────────────────────────────────────
+
+function EditorCodeModal({
+  isOpen,
+  onClose,
+  onSuccess,
+}: {
+  isOpen: boolean
+  onClose: () => void
+  onSuccess: () => void
+}) {
+  const [code, setCode] = useState('')
+  const [error, setError] = useState(false)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    if (isOpen) {
+      setCode('')
+      setError(false)
+      const t = setTimeout(() => inputRef.current?.focus(), 100)
+      return () => clearTimeout(t)
+    }
+  }, [isOpen])
+
+  if (!isOpen) return null
+
+  function handleSubmit(e?: React.FormEvent) {
+    if (e) e.preventDefault()
+    if (code.trim() === EDITOR_PASSCODE) {
+      setEditorUnlocked(true)
+      setError(false)
+      onSuccess()
+      onClose()
+    } else {
+      setError(true)
+      setCode('')
+      inputRef.current?.focus()
+    }
+  }
+
+  return (
+    <div className="editor-modal-backdrop" onClick={onClose} dir="rtl">
+      <div className="editor-modal-card" onClick={(e) => e.stopPropagation()}>
+        <button
+          type="button"
+          className="editor-modal-close"
+          onClick={onClose}
+          aria-label="إغلاق"
+        >
+          ✕
+        </button>
+
+        <div className="editor-modal-icon-badge">
+          <span>🔒</span>
+        </div>
+
+        <h3 className="editor-modal-title">رمز الدخول للمحرر</h3>
+        <p className="editor-modal-sub">
+          أدخل رمز المرور للتمكن من تعديل وحفظ بيانات المشجر العائلي
+        </p>
+
+        <form onSubmit={handleSubmit} className="editor-modal-form">
+          <div className="editor-code-input-wrap">
+            <input
+              ref={inputRef}
+              type="password"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              maxLength={10}
+              placeholder="••••"
+              value={code}
+              onChange={(e) => {
+                setError(false)
+                setCode(e.target.value)
+              }}
+              className={`editor-code-input ${error ? 'code-input-error' : ''}`}
+              autoComplete="off"
+            />
+          </div>
+
+          {error && (
+            <div className="editor-modal-error-alert" role="alert">
+              <span>⚠️ الرمز غير صحيح، يرجى المحاولة مرة أخرى</span>
+            </div>
+          )}
+
+          <div className="editor-modal-actions">
+            <button type="submit" className="primary editor-modal-submit-btn">
+              تأكيد والدخول للمحرر
+            </button>
+            <button
+              type="button"
+              className="compact-button editor-modal-cancel-btn"
+              onClick={onClose}
+            >
+              إلغاء
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+// ── Editor Gate Screen (direct URL access without PIN) ────────────────────────
+
+function EditorGateScreen({
+  onUnlocked,
+  onGoToViewer,
+  onGoHome,
+}: {
+  onUnlocked: () => void
+  onGoToViewer: () => void
+  onGoHome: () => void
+}) {
+  const [code, setCode] = useState('')
+  const [error, setError] = useState(false)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    inputRef.current?.focus()
+  }, [])
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    if (code.trim() === EDITOR_PASSCODE) {
+      setEditorUnlocked(true)
+      onUnlocked()
+    } else {
+      setError(true)
+      setCode('')
+      inputRef.current?.focus()
+    }
+  }
+
+  return (
+    <main className="editor-gate-screen" dir="rtl">
+      <div className="editor-gate-card">
+        <div className="editor-modal-icon-badge">
+          <span>🔒</span>
+        </div>
+        <p className="eyebrow">نَسَب · بوابة المحرر</p>
+        <h1 className="editor-gate-title">محرر المشجر محمي برمز مرور</h1>
+        <p className="editor-gate-desc">
+          لتعديل بيانات الشجرة وإضافة الأفراد، يرجى إدخال رمز الدخول.
+          إذا كنت ترغب فقط في استعراض الشجرة وقراءتها فلا حاجة لرمز.
+        </p>
+
+        <form onSubmit={handleSubmit} className="editor-modal-form">
+          <div className="editor-code-input-wrap">
+            <input
+              ref={inputRef}
+              type="password"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              maxLength={10}
+              placeholder="••••"
+              value={code}
+              onChange={(e) => {
+                setError(false)
+                setCode(e.target.value)
+              }}
+              className={`editor-code-input ${error ? 'code-input-error' : ''}`}
+              autoComplete="off"
+            />
+          </div>
+
+          {error && (
+            <div className="editor-modal-error-alert" role="alert">
+              <span>⚠️ الرمز غير صحيح، يرجى المحاولة مرة أخرى</span>
+            </div>
+          )}
+
+          <div className="editor-gate-btns">
+            <button type="submit" className="primary editor-modal-submit-btn">
+              فتح المحرر
+            </button>
+            <button
+              type="button"
+              className="compact-button editor-gate-viewer-btn"
+              onClick={onGoToViewer}
+            >
+              👁️ عرض الشجرة للقراءة فقط (بدون رمز)
+            </button>
+            <button
+              type="button"
+              className="compact-button"
+              onClick={onGoHome}
+            >
+              ← العودة للقائمة الرئيسية
+            </button>
+          </div>
+        </form>
+      </div>
+    </main>
+  )
 }
 
 // ── App root — handles URL routing ───────────────────────────────────────────
 
 export default function App() {
   const [route, setRoute] = useState(getUrlParams)
+  const [isUnlocked, setIsUnlocked] = useState(isEditorUnlocked)
 
   useEffect(() => {
-    const handler = () => setRoute(getUrlParams())
+    const handler = () => {
+      setRoute(getUrlParams())
+      setIsUnlocked(isEditorUnlocked())
+    }
     window.addEventListener('popstate', handler)
     return () => window.removeEventListener('popstate', handler)
   }, [])
 
-  if (route.view === 'viewer' || window.location.pathname.endsWith('/viewer')) {
-    return <PublicViewerPortal initialTreeId={route.treeId} />
-  }
-
-  function navigate(id: string | null, view: 'editor' | 'chart' | 'print' = 'editor') {
+  function navigate(id: string | null, view: 'editor' | 'chart' | 'print' | 'viewer' | 'stepped-editor' = 'editor') {
     let url = window.location.pathname
     if (id) {
       url += `?t=${id}`
       if (view === 'chart') url += `&view=chart`
       else if (view === 'print') url += `&view=print`
+      else if (view === 'viewer') url += `&view=viewer`
+      else if (view === 'stepped-editor') url += `&view=stepped-editor`
+    } else if (view === 'viewer') {
+      url += `?view=viewer`
     }
     history.pushState({}, '', url)
-    setRoute({ treeId: id, view: id ? view : 'editor' })
+    setRoute({ treeId: id, view: id ? view : (view === 'viewer' ? 'viewer' : 'editor') })
   }
 
-  if (!route.treeId) return <HomeScreen onNavigate={(id) => navigate(id, 'editor')} />
+  if (route.view === 'viewer' && !route.treeId) {
+    return <PublicViewerPortal initialTreeId={undefined} onGoHome={() => navigate(null)} />
+  }
 
-  if (route.view === 'chart') {
+  if (!route.treeId) {
     return (
-      <TreeChartPage
-        treeId={route.treeId}
-        onGoToEditor={() => navigate(route.treeId, 'editor')}
-        onGoToPrint={() => navigate(route.treeId, 'print')}
-        onGoHome={() => navigate(null)}
+      <HomeScreen
+        onNavigate={(id) => navigate(id, 'chart')}
+        onView={(id) => navigate(id, 'chart')}
       />
     )
   }
@@ -106,7 +338,7 @@ export default function App() {
     return (
       <TreePrintPage
         treeId={route.treeId}
-        onGoToEditor={() => navigate(route.treeId, 'editor')}
+        onGoToEditor={() => navigate(route.treeId, 'chart')}
         onGoToChart={() => navigate(route.treeId, 'chart')}
         onOpenTree={(id) => navigate(id, 'print')}
         onGoHome={() => navigate(null)}
@@ -114,23 +346,49 @@ export default function App() {
     )
   }
 
+  if (route.view === 'stepped-editor') {
+    if (!isUnlocked) {
+      return (
+        <EditorGateScreen
+          onUnlocked={() => setIsUnlocked(true)}
+          onGoToViewer={() => navigate(route.treeId, 'chart')}
+          onGoHome={() => navigate(null)}
+        />
+      )
+    }
+    return (
+      <TreeApp
+        treeId={route.treeId}
+        onOpenChart={() => navigate(route.treeId, 'chart')}
+        onOpenPrint={() => navigate(route.treeId, 'print')}
+        onOpenTree={(id) => navigate(id, 'chart')}
+        onGoHome={() => navigate(null)}
+      />
+    )
+  }
+
+  // Default view for any selected tree: TreeChartPage (with search, unified tree, and edit gate)
   return (
-    <TreeApp
+    <TreeChartPage
       treeId={route.treeId}
-      onOpenChart={() => navigate(route.treeId, 'chart')}
-      onOpenPrint={() => navigate(route.treeId, 'print')}
-      onOpenTree={(id) => navigate(id, 'editor')}
+      onGoToEditor={() => navigate(route.treeId, 'stepped-editor')}
+      onGoToPrint={() => navigate(route.treeId, 'print')}
       onGoHome={() => navigate(null)}
     />
   )
 }
 
-
-// ── Home Screen ───────────────────────────────────────────────────────────────
+// ── Redesigned Home Screen ───────────────────────────────────────────────────
 
 const OLD_STORAGE_KEY = 'nasab-tree-state-v1'
 
-function HomeScreen({ onNavigate }: { onNavigate: (id: string) => void }) {
+function HomeScreen({
+  onNavigate,
+  onView,
+}: {
+  onNavigate: (id: string) => void
+  onView: (id: string) => void
+}) {
   const {
     sessions,
     source,
@@ -149,6 +407,30 @@ function HomeScreen({ onNavigate }: { onNavigate: (id: string) => void }) {
   const [isLinkModalOpen, setIsLinkModalOpen] = useState(false)
   const [linkModalTargetTree, setLinkModalTargetTree] = useState<TreeMeta | null>(null)
 
+  // Editor passcode modal state
+  const [isCodeModalOpen, setIsCodeModalOpen] = useState(false)
+  const [pendingAction, setPendingAction] = useState<(() => void) | null>(null)
+  const [isUnlocked, setIsUnlocked] = useState(isEditorUnlocked)
+
+  // Search filter
+  const [searchQuery, setSearchQuery] = useState('')
+
+  // Collapsible branch toggle map (collapsed by default)
+  const [expandedBranches, setExpandedBranches] = useState<Record<string, boolean>>({})
+
+  // Card options menu state
+  const [activeMenuId, setActiveMenuId] = useState<string | null>(null)
+
+  useEffect(() => {
+    function handleClickOutside() {
+      setActiveMenuId(null)
+    }
+    if (activeMenuId) {
+      window.addEventListener('click', handleClickOutside)
+      return () => window.removeEventListener('click', handleClickOutside)
+    }
+  }, [activeMenuId])
+
   useEffect(() => {
     // Check for old localStorage data to migrate
     try {
@@ -161,6 +443,21 @@ function HomeScreen({ onNavigate }: { onNavigate: (id: string) => void }) {
       // ignore
     }
   }, [])
+
+  function requireEditorAccess(action: () => void) {
+    if (isEditorUnlocked()) {
+      setIsUnlocked(true)
+      action()
+    } else {
+      setPendingAction(() => action)
+      setIsCodeModalOpen(true)
+    }
+  }
+
+  function handleLockEditor() {
+    setEditorUnlocked(false)
+    setIsUnlocked(false)
+  }
 
   async function handleCreate() {
     setCreating(true)
@@ -209,6 +506,13 @@ function HomeScreen({ onNavigate }: { onNavigate: (id: string) => void }) {
     setDeleteConfirm(null)
   }
 
+  function toggleBranches(sessionId: string) {
+    setExpandedBranches((prev) => ({
+      ...prev,
+      [sessionId]: !prev[sessionId],
+    }))
+  }
+
   const mainTrees = useMemo(() => sessions.filter((s) => !s.linkedFrom), [sessions])
   const linkedTrees = useMemo(() => sessions.filter((s) => !!s.linkedFrom), [sessions])
   const mainTreeIds = useMemo(() => new Set(mainTrees.map((m) => m.id)), [mainTrees])
@@ -216,6 +520,23 @@ function HomeScreen({ onNavigate }: { onNavigate: (id: string) => void }) {
     () => linkedTrees.filter((b) => !mainTreeIds.has(b.linkedFrom!.mainTreeId)),
     [linkedTrees, mainTreeIds]
   )
+
+  // Filtered by search query if any
+  const normalizedQuery = searchQuery.trim().toLowerCase()
+  const filteredMainTrees = useMemo(() => {
+    if (!normalizedQuery) return mainTrees
+    return mainTrees.filter((t) => {
+      const matchName = t.name.toLowerCase().includes(normalizedQuery)
+      const matchAncestor = t.rootAncestor?.toLowerCase().includes(normalizedQuery)
+      const matchBranch = linkedTrees.some(
+        (b) =>
+          b.linkedFrom?.mainTreeId === t.id &&
+          (b.name.toLowerCase().includes(normalizedQuery) ||
+            b.linkedFrom?.personName?.toLowerCase().includes(normalizedQuery))
+      )
+      return matchName || matchAncestor || matchBranch
+    })
+  }, [mainTrees, linkedTrees, normalizedQuery])
 
   // If Supabase is not configured yet, show setup instructions
   if (!isConfigured) {
@@ -257,51 +578,93 @@ create trigger trees_updated_at
 
   return (
     <main className="home" dir="rtl">
+      {/* ── Top Header Bar ── */}
       <header className="home-header">
-        <div className="brand">
+        <div className="brand" onClick={() => setSearchQuery('')} title="نَسَب">
           <span className="brand-mark">ن</span>
-          <span>نَسَب</span>
+          <div className="brand-text-col">
+            <span className="brand-title">نَسَب</span>
+            <span className="brand-subtitle">شجرة القبيلة والنسب</span>
+          </div>
         </div>
 
-        <div className="home-header-status">
+        <div className="home-header-actions">
+          {/* Subtle connectivity dot */}
           {isSyncing ? (
-            <span className="sync-status-badge syncing" role="status">
-              <span className="spin">⟳</span> جارٍ المزامنة السحابية…
+            <span className="sync-status-dot syncing" title="جارٍ المزامنة السحابية…">
+              <span className="spin">⟳</span>
             </span>
           ) : isOffline ? (
-            <span className="sync-status-badge offline" role="status">
-              ⚡ وضع عدم الاتصال (محلي)
+            <span className="sync-status-dot offline" title="الوضع المحلي بدون إنترنت">
+              ⚡
             </span>
           ) : (
             <button
-              className="sync-status-badge online"
+              type="button"
+              className="sync-status-dot online"
               onClick={() => void syncNow()}
-              title="انقر لتحديث المزامنة يدويًا"
+              title="متصل بالسحابة (انقر للتحديث)"
             >
-              ● متصل بالسحابة
+              ●
+            </button>
+          )}
+
+          {/* Small corner edit button with passcode modal trigger */}
+          {isUnlocked ? (
+            <div className="home-unlocked-actions">
+              <button
+                type="button"
+                id="btn-create-tree"
+                className="home-btn-create-header"
+                onClick={() => void handleCreate()}
+                disabled={creating}
+                title="إنشاء مشجر رئيسي جديد"
+              >
+                <span>＋</span>
+                <span>{creating ? 'جارٍ الإنشاء…' : 'شجرة جديدة'}</span>
+              </button>
+              <button
+                type="button"
+                className="home-auth-corner-btn unlocked"
+                onClick={handleLockEditor}
+                title="وضع التعديل مفعل — انقر للقفل"
+              >
+                <span>🔓 وضع التحرير</span>
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              className="home-auth-corner-btn locked"
+              onClick={() => requireEditorAccess(() => {})}
+              title="دخول المحرر وتعديل المشجرات (رمز المرور)"
+            >
+              <span className="lock-icon">🔒</span>
+              <span>تعديل</span>
             </button>
           )}
         </div>
       </header>
 
+      {/* ── Main Container ── */}
       <div className="home-content">
         {/* Offline notice banner */}
         {isOffline && (
           <div className="offline-banner" role="alert">
             <span className="offline-banner-icon">⚡</span>
             <div className="offline-banner-text">
-              <strong>أنت غير متصل بالإنترنت</strong> — تظهر الجلسات المحمّلة فقط. يمكنك العمل وتعديلها وسيتم رفع التعديلات تلقائيًا فور عودة الاتصال.
+              <strong>أنت غير متصل بالإنترنت</strong> — تظهر الجلسات المحمّلة محلياً.
             </div>
           </div>
         )}
 
-        {/* Migration banner */}
+        {/* Migration banner if old local data exists */}
         {migratingState && (
           <div className="migration-banner">
             <div>
-              <p className="migration-title">وُجد عمل سابق محلّي</p>
+              <p className="migration-title">وُجد مشجر سابق محلّي</p>
               <p className="migration-sub">
-                شجرة «{migratingState.root?.name}» موجودة على هذا الجهاز فقط — انقلها إلى السحابة لتتمكن من الوصول إليها من أي جهاز.
+                شجرة «{migratingState.root?.name}» موجودة على هذا الجهاز فقط — انقلها إلى السحابة.
               </p>
             </div>
             <button
@@ -314,358 +677,330 @@ create trigger trees_updated_at
           </div>
         )}
 
-        <div className="home-actions">
-          <div className="home-title-group">
-            <h2 className="home-section-title">أشجارك وجلساتك</h2>
-            <span className="home-count-pill">{sessions.length} شجرة</span>
-          </div>
+        {/* ── Minimalist, Elegant Header & Search ── */}
+        <section className="home-intro-clean">
+          <h1 className="home-page-title">المشجّرات العائلية</h1>
+          <p className="home-page-sub">
+            سجل أنساب وذرية العائلة — اختر مشجراً لاستعراضه
+          </p>
 
-          <div className="home-actions-btns">
-            {!isOffline && (
-              <button
-                className="compact-button"
-                onClick={() => void refresh()}
-                title="تحديث القائمة"
-              >
-                ↻ تحديث
-              </button>
-            )}
-            <button
-              className="compact-button"
-              onClick={() => window.open('?view=viewer', '_blank')}
-              title="فتح بوابة الزوار العامة المخصصة للقراءة والطباعة فقط دون إمكانية التعديل"
-              style={{ color: 'var(--accent)', borderColor: 'var(--accent)' }}
-            >
-              👁️ بوابة الزوار (للقراءة فقط)
-            </button>
-            <button
-              className="compact-button link-header-action-btn"
-              onClick={() => openLinkModal()}
-              title="إضافة فرع عائلي مرتبط (بنت / أخ) أو ربط شجرة قائمة"
-            >
-              🔗 + إضافة فرع مرتبط
-            </button>
-            <button
-              id="btn-create-tree"
-              className="primary"
-              onClick={() => void handleCreate()}
-              disabled={creating}
-            >
-              {creating ? 'جارٍ الإنشاء…' : '+ شجرة رئيسية'}
-            </button>
-          </div>
-        </div>
+          {sessions.length > 0 && (
+            <div className="home-search-pill-wrap">
+              <span className="home-search-ico">🔍</span>
+              <input
+                type="text"
+                className="home-search-pill-input"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="ابحث بالاسم، الجد، أو الفرع..."
+              />
+              {searchQuery ? (
+                <button
+                  type="button"
+                  className="home-search-pill-clear"
+                  onClick={() => setSearchQuery('')}
+                  aria-label="مسح البحث"
+                >
+                  ✕
+                </button>
+              ) : (
+                <span className="home-search-pill-count">
+                  {sessions.length} {sessions.length === 1 ? 'مشجر' : 'مشجرات'}
+                </span>
+              )}
+            </div>
+          )}
+        </section>
 
+        {/* ── Tree Cards Grid ── */}
         {loading ? (
           <div className="home-empty-card">
-            <div className="spin" style={{ fontSize: '24px', marginBottom: '8px' }}>⟳</div>
-            <p>جارٍ تحميل الجلسات…</p>
+            <div className="spin" style={{ fontSize: '28px', marginBottom: '12px' }}>⟳</div>
+            <p>جارٍ تحميل المشجرات العائلية…</p>
           </div>
         ) : sessions.length === 0 ? (
           <div className="home-empty-card">
-            {isOffline ? (
-              <>
-                <p className="home-empty-title">لا توجد جلسات محمّلة محليًا</p>
-                <p className="home-empty-sub">
-                  أنت غير متصل بالإنترنت ولم تقم بتحميل أي جلسة مسبقًا. يمكنك إنشاء شجرة جديدة والعمل عليها محليًا.
-                </p>
-              </>
-            ) : (
-              <>
-                <p className="home-empty-title">لا توجد أشجار بعد</p>
-                <p className="home-empty-sub">ابدأ بإنشاء شجرة رئيسية لبناء وتوثيق أنساب العائلة، ثم أضف الأفرع المرتبطة.</p>
-              </>
-            )}
+            <div className="home-empty-icon">🌳</div>
+            <p className="home-empty-title">لا توجد أشجار عائلية بعد</p>
+            <p className="home-empty-sub">
+              ابدأ بإنشاء أول شجرة لتوثيق أنساب العائلة.
+            </p>
+            <button
+              className="primary home-empty-create-btn"
+              onClick={() => requireEditorAccess(() => void handleCreate())}
+            >
+              ＋ إنشاء أول شجرة عائلية
+            </button>
+          </div>
+        ) : filteredMainTrees.length === 0 && searchQuery ? (
+          <div className="home-empty-card">
+            <p className="home-empty-title">لا توجد نتائج تطابق «{searchQuery}»</p>
+            <p className="home-empty-sub">جرّب البحث باسم آخر أو امسح حقل البحث.</p>
+            <button
+              type="button"
+              className="compact-button"
+              style={{ marginTop: '10px' }}
+              onClick={() => setSearchQuery('')}
+            >
+              عرض جميع الأشجار
+            </button>
           </div>
         ) : (
-          <ul className="tree-list" role="list">
-            {mainTrees.map((session) => {
+          <div className="tree-cards-list">
+            {filteredMainTrees.map((session) => {
               const isDownloaded = session.downloaded === true
               const isDownloading = downloadingId === session.id
               const branches = linkedTrees.filter((b) => b.linkedFrom?.mainTreeId === session.id)
+              const isBranchesExpanded = !!expandedBranches[session.id]
+              const isMenuOpen = activeMenuId === session.id
 
               return (
-                <li key={session.id} className="tree-list-item main-tree-item">
-                  <div className="tree-list-main-card">
-                    <div className="tree-list-info">
-                      <div className="tree-list-title-row">
-                        <p className="tree-list-name">{session.name}</p>
-                        {session.rootAncestor && session.rootAncestor !== session.name && (
-                          <span className="session-root-tag" title="الجد الأساسي">
-                            الأصل: {session.rootAncestor}
-                          </span>
-                        )}
-                        {branches.length > 0 && (
-                          <span className="session-branches-count-badge">
-                            🌿 {branches.length} {branches.length === 1 ? 'فرع مرتبط' : 'أفرع مرتبطة'}
-                          </span>
-                        )}
-                      </div>
+                <article
+                  key={session.id}
+                  className="tree-card"
+                  onClick={() => onView(session.id)}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault()
+                      onView(session.id)
+                    }
+                  }}
+                >
+                  <div className="tree-card-top">
+                    <div className="tree-card-emblem-wrap">
+                      <span className="tree-card-emblem">🌳</span>
+                    </div>
 
-                      <div className="tree-list-meta-row">
-                        <span className="tree-list-date">
-                          🕒 آخر تعديل: {formatDate(session.updated_at)}
+                    <div className="tree-card-title-col">
+                      <h2 className="tree-card-name">{session.name}</h2>
+                      {session.rootAncestor && session.rootAncestor !== session.name && (
+                        <span className="tree-root-tag" title="الجد الأساسي">
+                          الأصل: {session.rootAncestor}
                         </span>
+                      )}
+                    </div>
 
-                        {isDownloaded ? (
-                          <span
-                            className="session-badge downloaded"
-                            title="هذه الشجرة محملة على هذا الجهاز ومتاحة للاستخدام بدون إنترنت"
-                          >
-                            ✓ متاح بدون إنترنت
-                          </span>
-                        ) : (
-                          <span
-                            className="session-badge cloud-only"
-                            title="موجودة في السحابة فقط — حمّلها لتتمكن من فتحها بدون اتصال"
-                          >
-                            ☁ في السحابة
-                          </span>
+                    {/* Options menu — only visible in Editor Mode to keep reading clean and uncluttered */}
+                    {isUnlocked && (
+                      <div className="tree-card-menu-anchor" onClick={(e) => e.stopPropagation()}>
+                        <button
+                          type="button"
+                          className="tree-card-dots-btn"
+                          onClick={() => setActiveMenuId(isMenuOpen ? null : session.id)}
+                          title="خيارات الإدارة"
+                          aria-label="خيارات إضافية"
+                        >
+                          ⋯
+                        </button>
+
+                        {isMenuOpen && (
+                          <div className="tree-card-dropdown" onClick={(e) => e.stopPropagation()}>
+                            {!isOffline && !isDownloaded && (
+                              <button
+                                type="button"
+                                className="dropdown-item"
+                                onClick={() => {
+                                  setActiveMenuId(null)
+                                  void downloadSession(session.id)
+                                }}
+                                disabled={isDownloading}
+                              >
+                                ⬇ حفظ للعمل بدون إنترنت
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              className="dropdown-item"
+                              onClick={() => {
+                                setActiveMenuId(null)
+                                requireEditorAccess(() => openLinkModal(session))
+                              }}
+                            >
+                              🔗 إضافة فرع مرتبط
+                            </button>
+                            <button
+                              type="button"
+                              className="dropdown-item danger"
+                              onClick={() => {
+                                setActiveMenuId(null)
+                                requireEditorAccess(() => setDeleteConfirm(session.id))
+                              }}
+                            >
+                              🗑️ حذف الشجرة
+                            </button>
+                          </div>
                         )}
                       </div>
-                    </div>
-
-                    <div className="tree-list-actions">
-                      {!isOffline && !isDownloaded && (
-                        <button
-                          className="compact-button download-action-btn"
-                          onClick={() => void downloadSession(session.id)}
-                          disabled={isDownloading}
-                          title="تحميل الشجرة للعمل بدون إنترنت"
-                        >
-                          {isDownloading ? 'جارٍ التحميل…' : '⬇ تحميل للأوفلاين'}
-                        </button>
-                      )}
-
-                      {deleteConfirm === session.id ? (
-                        <>
-                          <button
-                            className="danger-button"
-                            onClick={() => void handleDelete(session.id)}
-                          >
-                            تأكيد الحذف
-                          </button>
-                          <button
-                            className="compact-button"
-                            onClick={() => setDeleteConfirm(null)}
-                          >
-                            إلغاء
-                          </button>
-                        </>
-                      ) : (
-                        <>
-                          <button
-                            className="primary open-action-btn"
-                            onClick={() => onNavigate(session.id)}
-                          >
-                            فتح المحرر
-                          </button>
-                          <button
-                            className="compact-button viewer-action-btn"
-                            onClick={() => window.open(`?t=${session.id}&view=viewer`, '_blank')}
-                            title="فتح دليل العائلة المخصص للمستخدمين بدون محرر"
-                          >
-                            📱 عرض الدليل العائلي
-                          </button>
-                          <button
-                            className="compact-button link-branch-btn"
-                            onClick={() => openLinkModal(session)}
-                            title="إضافة فرع مرتبط (بنت / أخ) أو ربط شجرة بهذا الأصل"
-                          >
-                            🔗 + فرع مرتبط
-                          </button>
-                          <button
-                            className="compact-button delete-action-btn"
-                            onClick={() => setDeleteConfirm(session.id)}
-                            title="حذف الشجرة"
-                          >
-                            حذف
-                          </button>
-                        </>
-                      )}
-                    </div>
+                    )}
                   </div>
 
-                  {/* ── Nested branches list ── */}
-                  {branches.length > 0 && (
-                    <div className="tree-branches-wrapper">
-                      <div className="tree-branches-indicator">
-                        <span className="tree-branch-arrow">↳</span>
-                        <span className="tree-branches-label">الأفرع والشجرات المتصلة بهذا الأصل:</span>
+                  {/* Inline delete confirmation */}
+                  {deleteConfirm === session.id && (
+                    <div
+                      className="tree-card-delete-alert"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <p>هل تريد بالتأكيد حذف «{session.name}»؟</p>
+                      <div className="tree-card-delete-btns">
+                        <button
+                          type="button"
+                          className="tree-danger-confirm-btn"
+                          onClick={() => void handleDelete(session.id)}
+                        >
+                          تأكيد الحذف
+                        </button>
+                        <button
+                          type="button"
+                          className="tree-sub-btn"
+                          onClick={() => setDeleteConfirm(null)}
+                        >
+                          إلغاء
+                        </button>
                       </div>
-                      <ul className="tree-branches-sublist">
-                        {branches.map((branch) => {
-                          const l = branch.linkedFrom!
-                          const bDownloaded = branch.downloaded === true
-                          const bDownloading = downloadingId === branch.id
-
-                          return (
-                            <li key={branch.id} className="tree-branch-item">
-                              <div className="tree-branch-info">
-                                <div className="tree-branch-title-line">
-                                  <span className={`link-badge-pill ${l.type}`}>
-                                    {l.type === 'daughter-branch'
-                                      ? '🧬 فرع بنت'
-                                      : l.type === 'brother-branch'
-                                      ? '🤝 فرع أخ الجد'
-                                      : '🌿 فرع مرتبط'}
-                                  </span>
-                                  <strong className="tree-branch-title">{branch.name}</strong>
-                                  {l.personName && (
-                                    <span className="tree-branch-person-tag">
-                                      ({l.personName})
-                                    </span>
-                                  )}
-                                </div>
-                                {l.note && <p className="tree-branch-note-text">{l.note}</p>}
-                                <div className="tree-branch-meta-line">
-                                  <span className="tree-list-date">
-                                    🕒 {formatDate(branch.updated_at)}
-                                  </span>
-                                  {bDownloaded ? (
-                                    <span className="session-badge downloaded-mini">✓ محلي</span>
-                                  ) : (
-                                    <span className="session-badge cloud-mini">☁ سحابي</span>
-                                  )}
-                                </div>
-                              </div>
-
-                              <div className="tree-branch-actions">
-                                {!isOffline && !bDownloaded && (
-                                  <button
-                                    className="compact-button download-action-btn"
-                                    onClick={() => void downloadSession(branch.id)}
-                                    disabled={bDownloading}
-                                    title="تحميل للأوفلاين"
-                                  >
-                                    {bDownloading ? '…' : '⬇'}
-                                  </button>
-                                )}
-                                <button
-                                  className="compact-button primary"
-                                  onClick={() => onNavigate(branch.id)}
-                                >
-                                  فتح المحرر
-                                </button>
-                                <button
-                                  className="compact-button viewer-action-btn"
-                                  onClick={() => window.open(`?t=${branch.id}&view=viewer`, '_blank')}
-                                  title="عرض الدليل العائلي"
-                                >
-                                  📱 الدليل
-                                </button>
-                                {deleteConfirm === branch.id ? (
-                                  <>
-                                    <button
-                                      className="danger-button"
-                                      onClick={() => void handleDelete(branch.id)}
-                                    >
-                                      تأكيد
-                                    </button>
-                                    <button
-                                      className="compact-button"
-                                      onClick={() => setDeleteConfirm(null)}
-                                    >
-                                      إلغاء
-                                    </button>
-                                  </>
-                                ) : (
-                                  <>
-                                    <button
-                                      className="compact-button delete-action-btn"
-                                      onClick={() => setDeleteConfirm(branch.id)}
-                                      title="حذف هذا الفرع"
-                                    >
-                                      حذف
-                                    </button>
-                                    <button
-                                      className="compact-button unlink-action-btn"
-                                      onClick={() => void handleLinkExistingTree(branch.id, null)}
-                                      title="فك ارتباط هذا الفرع ليصبح شجرة رئيسية مستقلة"
-                                    >
-                                      فك الارتباط
-                                    </button>
-                                  </>
-                                )}
-                              </div>
-                            </li>
-                          )
-                        })}
-                      </ul>
                     </div>
                   )}
-                </li>
+
+                  {/* Meta row */}
+                  <div className="tree-card-meta-line">
+                    <span className="tree-card-date">
+                      🕒 {formatDate(session.updated_at)}
+                    </span>
+
+                    {isDownloaded ? (
+                      <span className="tree-status-badge downloaded" title="متاح للعمل بدون إنترنت">
+                        ✓ محلي
+                      </span>
+                    ) : (
+                      <span className="tree-status-badge cloud" title="موجود على السحابة">
+                        ☁ سحابي
+                      </span>
+                    )}
+
+                    {branches.length > 0 && (
+                      <button
+                        type="button"
+                        className="tree-branches-counter-btn"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          toggleBranches(session.id)
+                        }}
+                        title="إظهار / إخفاء الأفرع المرتبطة"
+                      >
+                        🌿 {branches.length} {branches.length === 1 ? 'فرع مرتبط' : 'أفرع'}{' '}
+                        <span className="toggle-chevron">{isBranchesExpanded ? '▲' : '▼'}</span>
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Nested branches list if expanded */}
+                  {branches.length > 0 && isBranchesExpanded && (
+                    <div className="tree-branches-section" onClick={(e) => e.stopPropagation()}>
+                      <div className="tree-branches-cards">
+                        {branches.map((branch) => {
+                          const l = branch.linkedFrom!
+                          return (
+                            <div
+                              key={branch.id}
+                              className="tree-branch-chip-btn"
+                              onClick={() => onView(branch.id)}
+                              title="انقر لفتح هذا الفرع"
+                              role="button"
+                              tabIndex={0}
+                            >
+                              <span className={`link-badge-pill ${l.type}`}>
+                                {l.type === 'daughter-branch'
+                                  ? '🧬 فرع بنت'
+                                  : l.type === 'brother-branch'
+                                  ? '🤝 فرع أخ الجد'
+                                  : '🌿 فرع مرتبط'}
+                              </span>
+                              <span className="tree-branch-chip-name">{branch.name}</span>
+                              <span className="tree-branch-chip-arrow">←</span>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Clean bottom affordance */}
+                  <div className="tree-card-footer">
+                    <span className="tree-card-view-link">
+                      استعراض المشجر
+                      <span className="tree-card-view-arrow">←</span>
+                    </span>
+                  </div>
+                </article>
               )
             })}
 
-            {/* ── Standalone / Orphaned linked trees if any ── */}
+            {/* Standalone / Orphaned linked trees if any */}
             {orphanLinkedTrees.length > 0 && (
               <div className="orphan-branches-block">
                 <h3 className="orphan-branches-title">أفرع وشجرات مرتبطة أخرى</h3>
-                {orphanLinkedTrees.map((branch) => {
-                  const l = branch.linkedFrom!
-                  const isDownloaded = branch.downloaded === true
-                  const isDownloading = downloadingId === branch.id
+                <div className="tree-cards-list">
+                  {orphanLinkedTrees.map((branch) => {
+                    const l = branch.linkedFrom!
+                    const isDownloaded = branch.downloaded === true
 
-                  return (
-                    <li key={branch.id} className="tree-list-item orphan-tree-item">
-                      <div className="tree-list-info">
-                        <div className="tree-list-title-row">
-                          <span className={`link-badge-pill ${l.type}`}>
-                            {l.type === 'daughter-branch'
-                              ? '🧬 فرع بنت'
-                              : l.type === 'brother-branch'
-                              ? '🤝 فرع أخ الجد'
-                              : '🌿 فرع مرتبط'}
-                          </span>
-                          <p className="tree-list-name">{branch.name}</p>
-                          <span className="session-root-tag">
-                            الأصل: {l.mainTreeName}
+                    return (
+                      <article
+                        key={branch.id}
+                        className="tree-card orphan-tree-card"
+                        onClick={() => onView(branch.id)}
+                        role="button"
+                        tabIndex={0}
+                      >
+                        <div className="tree-card-top">
+                          <div className="tree-card-emblem-wrap">
+                            <span className="tree-card-emblem">🌿</span>
+                          </div>
+                          <div className="tree-card-title-col">
+                            <div className="tree-card-title-line">
+                              <span className={`link-badge-pill ${l.type}`}>
+                                {l.type === 'daughter-branch'
+                                  ? '🧬 فرع بنت'
+                                  : l.type === 'brother-branch'
+                                  ? '🤝 فرع أخ الجد'
+                                  : '🌿 فرع مرتبط'}
+                              </span>
+                              <h2 className="tree-card-name">{branch.name}</h2>
+                              <span className="tree-root-tag">الأصل: {l.mainTreeName}</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="tree-card-meta-line">
+                          <span className="tree-card-date">🕒 {formatDate(branch.updated_at)}</span>
+                          {isDownloaded ? (
+                            <span className="tree-status-badge downloaded">✓ محلي</span>
+                          ) : (
+                            <span className="tree-status-badge cloud">☁ سحابي</span>
+                          )}
+                        </div>
+
+                        <div className="tree-card-footer">
+                          <span className="tree-card-view-link">
+                            استعراض الفرع
+                            <span className="tree-card-view-arrow">←</span>
                           </span>
                         </div>
-                        <div className="tree-list-meta-row">
-                          <span className="tree-list-date">
-                            🕒 آخر تعديل: {formatDate(branch.updated_at)}
-                          </span>
-                        </div>
-                      </div>
-                      <div className="tree-list-actions">
-                        {!isOffline && !isDownloaded && (
-                          <button
-                            className="compact-button download-action-btn"
-                            onClick={() => void downloadSession(branch.id)}
-                            disabled={isDownloading}
-                          >
-                            ⬇ للأوفلاين
-                          </button>
-                        )}
-                        <button
-                          className="primary open-action-btn"
-                          onClick={() => onNavigate(branch.id)}
-                        >
-                          فتح المحرر
-                        </button>
-                        <button
-                          className="compact-button"
-                          onClick={() => void handleLinkExistingTree(branch.id, null)}
-                          title="فك الارتباط"
-                        >
-                          فك الارتباط
-                        </button>
-                      </div>
-                    </li>
-                  )
-                })}
+                      </article>
+                    )
+                  })}
+                </div>
               </div>
             )}
-          </ul>
+          </div>
         )}
 
-        <p className="home-hint">
+        <footer className="home-footer-hint">
           {isOffline
-            ? '💡 يمكنك تعديل الجلسات المحملة بالكامل بدون إنترنت، وستُرفع تلقائيًا فور اتصالك.'
-            : '💡 قم بتحميل الجلسات (⬇) قبل مغادرة الاتصال بالإنترنت لتتمكن من تعديلها في أي وقت.'}
-        </p>
+            ? '💡 يمكنك استعراض وتعديل الجلسات المحملة بالكامل بدون إنترنت، وستُرفع تلقائياً فور اتصالك.'
+            : '💡 المشجرات متاحة للجميع للاستعراض والقراءة، بينما التعديل محمي برمز مرور العائلة.'}
+        </footer>
       </div>
 
       {/* Link Tree Modal */}
@@ -676,6 +1011,23 @@ create trigger trees_updated_at
         allTrees={sessions}
         onCreateLinkedTree={handleCreateLinkedTree}
         onLinkExistingTree={handleLinkExistingTree}
+      />
+
+      {/* Editor Code Modal */}
+      <EditorCodeModal
+        isOpen={isCodeModalOpen}
+        onClose={() => {
+          setIsCodeModalOpen(false)
+          setPendingAction(null)
+        }}
+        onSuccess={() => {
+          setIsUnlocked(true)
+          if (pendingAction) {
+            const action = pendingAction
+            setPendingAction(null)
+            action()
+          }
+        }}
       />
     </main>
   )
@@ -699,9 +1051,28 @@ function TreeChartPage({
   const [selectedId, setSelectedId] = useState<string | null>(null)
 
   const [showUnifiedView, setShowUnifiedView] = useState(true)
+  const [commonFatherName] = useState(() => {
+    return localStorage.getItem(`commonFatherName_${treeId}`) || 'محمد'
+  })
   const [isLinkModalOpen, setIsLinkModalOpen] = useState(false)
   const [linkModalPerson, setLinkModalPerson] = useState<Person | null>(null)
   const [linkModalTargetBranchId, setLinkModalTargetBranchId] = useState<string | null>(null)
+
+  // Passcode-protection for edit actions (PIN: 2233)
+  const [isUnlocked, setIsUnlocked] = useState(isEditorUnlocked)
+  const [isCodeModalOpen, setIsCodeModalOpen] = useState(false)
+  const [pendingAction, setPendingAction] = useState<(() => void) | null>(null)
+
+  function requireEditorAccess(action: () => void) {
+    if (isEditorUnlocked()) {
+      setIsUnlocked(true)
+      action()
+    } else {
+      setPendingAction(() => action)
+      setIsCodeModalOpen(true)
+    }
+  }
+
   const counts = tree.root ? countPeople(tree.root) : { males: 0, females: 0 }
 
   const mainTreeName = tree.root ? `شجرة ${tree.root.name}` : 'الشجرة الرئيسية'
@@ -728,16 +1099,49 @@ function TreeChartPage({
     mainTreeName,
     sessions,
     enabled: showUnifiedView,
+    commonFatherName: commonFatherName.trim() || undefined,
   })
 
   const displayRoot = showUnifiedView && unifiedResult ? unifiedResult.root : tree.root
 
   if (!tree.root) {
+    if (tree.isSyncing) {
+      return (
+        <main className="setup" dir="rtl">
+          <div className="setup-card">
+            <p className="eyebrow">نَسَب</p>
+            <h1>جارٍ تحميل مخطط الشجرة…</h1>
+            <div className="spin" style={{ fontSize: '28px', marginTop: '16px' }}>⟳</div>
+          </div>
+        </main>
+      )
+    }
+
     return (
       <main className="setup" dir="rtl">
-        <div className="setup-card">
-          <p className="eyebrow">نَسَب</p>
-          <h1>جارٍ تحميل مخطط الشجرة…</h1>
+        <div className="setup-card" style={{ textAlign: 'center' }}>
+          <div style={{ fontSize: '40px', marginBottom: '12px' }}>🌳</div>
+          <p className="eyebrow">مشجر فارغ</p>
+          <h1 style={{ fontSize: '26px', marginBottom: '8px' }}>لم يتم إدخال بيانات هذا المشجر بعد</h1>
+          <p className="lede" style={{ margin: '0 auto 20px', maxWidth: '40ch' }}>
+            هذا المشجر جديد ولا يحتوي على جد أساسي أو أفراد. يمكنك فتح المحرر لإضافة الجد الأول والبدء في بناء الشجرة.
+          </p>
+          <div style={{ display: 'flex', gap: '10px', justifyContent: 'center', flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              className="primary"
+              onClick={() => requireEditorAccess(onGoToEditor)}
+            >
+              📝 فتح المحرر للبدء بالإدخال
+            </button>
+            <button
+              type="button"
+              className="compact-button"
+              onClick={onGoHome}
+            >
+              ← العودة للرئيسية
+            </button>
+          </div>
         </div>
       </main>
     )
@@ -770,13 +1174,40 @@ function TreeChartPage({
           <span>نَسَب · مخطط الشجرة</span>
         </div>
 
-        <button
-          type="button"
-          className="compact-button primary"
-          onClick={onGoToEditor}
-        >
-          📝 نموذج الإدخال
-        </button>
+        {/* Small corner edit button */}
+        {isUnlocked ? (
+          <button
+            type="button"
+            className="compact-button editor-auth-badge unlocked"
+            onClick={() => {
+              setEditorUnlocked(false)
+              setIsUnlocked(false)
+            }}
+            title="وضع التعديل مفعل — انقر للقفل"
+          >
+            🔓 وضع التعديل (قفل)
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="compact-button editor-auth-badge"
+            onClick={() => requireEditorAccess(() => {})}
+            title="تعديل الشجرة (يتطلب الرمز 2233)"
+          >
+            ✏️ تعديل
+          </button>
+        )}
+
+        {isUnlocked && (
+          <button
+            type="button"
+            className="compact-button"
+            onClick={onGoToEditor}
+            title="فتح نموذج الإدخال الكامل"
+          >
+            📝 نموذج الإدخال
+          </button>
+        )}
 
         <button
           type="button"
@@ -810,7 +1241,7 @@ function TreeChartPage({
             <button
               type="button"
               className="unlink-mini-btn"
-              onClick={() => void handleLinkExistingTree(treeId, null)}
+              onClick={() => requireEditorAccess(() => void handleLinkExistingTree(treeId, null))}
               title="فك الارتباط لتصبح هذه الشجرة مستقلة ومنفصلة تماماً"
             >
               ✂️ فك الارتباط (جعلها مستقلة)
@@ -821,18 +1252,17 @@ function TreeChartPage({
             type="button"
             className="compact-button"
             onClick={() => {
-              setLinkModalTargetBranchId(treeId)
-              setLinkModalPerson(null)
-              setIsLinkModalOpen(true)
+              requireEditorAccess(() => {
+                setLinkModalTargetBranchId(treeId)
+                setLinkModalPerson(null)
+                setIsLinkModalOpen(true)
+              })
             }}
             title="ربط هذه الشجرة كفرع لشجرة أخرى (مثال: أخت الجد الخامس هي أم لهذه الشجرة)"
           >
             🔗 ربط هذه الشجرة كفرع بشجرة أخرى
           </button>
         )}
-
-
-
 
         {tree.isOffline ? (
           <span className="sync-indicator offline" role="status" title="حفظ محلي تلقائي بدون إنترنت">
@@ -844,7 +1274,6 @@ function TreeChartPage({
           </span>
         ) : null}
 
-
         <div className="counts">
           <span>{arabicCount(counts.males, 'رجل', 'رجال')}</span>
           <span>{arabicCount(counts.females, 'امرأة', 'نساء')}</span>
@@ -852,29 +1281,39 @@ function TreeChartPage({
       </header>
 
       <main className="chart-page-body">
-        {showUnifiedView && unifiedResult?.isUnified && (
-          <div className="unified-view-banner" role="status">
-            🌐 <strong>عرض موحد:</strong> تشمل هذه الشجرة {unifiedResult.connectedTreeIds.length} شجرة مدمجة — {unifiedResult.branchCount} فرع مرتبط. الأفرع تظهر بشارات ملونة.
-          </div>
-        )}
         <VisualTreeChart
           root={displayRoot}
           isUnifiedView={showUnifiedView && !!unifiedResult?.isUnified}
+          isEditMode={isUnlocked}
+          currentTreeId={treeId}
+          currentTreeName={mainTreeName}
+          availableTrees={sessions}
           selectedId={selectedId}
           currentId={tree.currentPersonId}
           onSelectPerson={(person) => setSelectedId(person.id)}
-          onGoToEditorForPerson={() => onGoToEditor()}
-          onRenamePerson={(personId, name) => tree.renamePerson(personId, name)}
-          onAddChildrenBatch={(personId, sons, daughters) =>
-            tree.setChildren(personId, sons, daughters)
+          onRequestEditUnlock={() => requireEditorAccess(() => {})}
+          onGoToEditorForPerson={() => requireEditorAccess(() => onGoToEditor())}
+          onRenamePerson={(personId, name) =>
+            requireEditorAccess(() => tree.renamePerson(personId, name))
           }
-          onDeletePerson={(personId) => tree.deletePerson(personId)}
-          onAddWife={(personId, wifeNameOrId) => tree.addWifeToPerson(personId, wifeNameOrId)}
-          onRemoveWife={(personId, index) => tree.removeWifeFromPerson(personId, index)}
+          onAddChildrenBatch={(personId, sons, daughters) =>
+            requireEditorAccess(() => tree.setChildren(personId, sons, daughters))
+          }
+          onDeletePerson={(personId) =>
+            requireEditorAccess(() => tree.deletePerson(personId))
+          }
+          onAddWife={(personId, wifeNameOrId) =>
+            requireEditorAccess(() => tree.addWifeToPerson(personId, wifeNameOrId))
+          }
+          onRemoveWife={(personId, index) =>
+            requireEditorAccess(() => tree.removeWifeFromPerson(personId, index))
+          }
           onLinkBranchForPerson={(person) => {
-            setLinkModalPerson(person)
-            setLinkModalTargetBranchId(null)
-            setIsLinkModalOpen(true)
+            requireEditorAccess(() => {
+              setLinkModalPerson(person)
+              setLinkModalTargetBranchId(null)
+              setIsLinkModalOpen(true)
+            })
           }}
         />
       </main>
@@ -895,7 +1334,22 @@ function TreeChartPage({
         onLinkExistingTree={handleLinkExistingTree}
       />
 
-
+      {/* Editor Code Modal for PIN 2233 */}
+      <EditorCodeModal
+        isOpen={isCodeModalOpen}
+        onClose={() => {
+          setIsCodeModalOpen(false)
+          setPendingAction(null)
+        }}
+        onSuccess={() => {
+          setIsUnlocked(true)
+          if (pendingAction) {
+            const action = pendingAction
+            setPendingAction(null)
+            action()
+          }
+        }}
+      />
     </div>
   )
 }
@@ -1041,7 +1495,7 @@ function TreeApp({
   const visitedIds = useMemo(() => {
     if (!tree.currentPersonId) return new Set(males.map((male) => male.id))
 
-    if (tree.phase === 'add-wives' && tree.malesQueue.length > 0) {
+    if ((tree.phase === 'add-wives' || tree.phase === 'assign-mothers') && tree.malesQueue.length > 0) {
       const index = tree.malesQueue.indexOf(tree.currentPersonId)
       const visitedCount = index >= 0 ? index : tree.currentMaleIndex
       return new Set(tree.malesQueue.slice(0, Math.max(0, visitedCount)))
@@ -1103,6 +1557,36 @@ function TreeApp({
 
   const isWivesPhase = tree.phase === 'add-wives'
   const isChildrenPhase = tree.phase === 'enter-children'
+  const isMothersPhase = tree.phase === 'assign-mothers'
+
+  const multiWifeCount = useMemo(() => {
+    if (!tree.root) return 0
+    return collectMalesDFS(tree.root).filter(
+      (m) => (m.wives?.length ?? 0) > 1 && (m.children?.length ?? 0) > 0,
+    ).length
+  }, [tree.root])
+
+  const wivesContinueLabel = useMemo(() => {
+    if (!isWivesPhase) return undefined
+    const isLast = tree.currentMaleIndex >= tree.malesQueue.length - 1
+    if (isLast) {
+      return multiWifeCount > 0
+        ? 'حفظ والانتقال إلى الأمهات'
+        : 'حفظ والإنهاء إلى المراجعة'
+    }
+    return 'حفظ والانتقال للتالي'
+  }, [isWivesPhase, tree.currentMaleIndex, tree.malesQueue.length, multiWifeCount])
+
+  const mothersContinueLabel = useMemo(() => {
+    if (!isMothersPhase) return undefined
+    const isLast = tree.currentMaleIndex >= tree.malesQueue.length - 1
+    return isLast ? 'حفظ والإنهاء إلى المراجعة' : 'حفظ والانتقال للتالي'
+  }, [isMothersPhase, tree.currentMaleIndex, tree.malesQueue.length])
+
+  const mothersProgressLabel = useMemo(() => {
+    if (!isMothersPhase || tree.malesQueue.length === 0) return ''
+    return `رجل ${(tree.currentMaleIndex + 1).toLocaleString('ar')} من ${tree.malesQueue.length.toLocaleString('ar')} (متعدد)`
+  }, [isMothersPhase, tree.currentMaleIndex, tree.malesQueue.length])
 
   const activeFocus = useMemo(() => {
     if (isChildrenPhase) {
@@ -1111,8 +1595,11 @@ function TreeApp({
     if (isWivesPhase) {
       return reviewFocus === 'children' || reviewFocus === 'mothers' ? reviewFocus : 'wives'
     }
+    if (isMothersPhase) {
+      return reviewFocus === 'children' || reviewFocus === 'wives' ? reviewFocus : 'mothers'
+    }
     return reviewFocus
-  }, [isChildrenPhase, isWivesPhase, reviewFocus])
+  }, [isChildrenPhase, isWivesPhase, isMothersPhase, reviewFocus])
 
   // ── Setup screen (new tree, no root yet) ──
   if (tree.phase === 'setup' || !tree.root) {
@@ -1209,44 +1696,49 @@ function TreeApp({
           <span>نَسَب</span>
         </div>
 
-        {(tree.linkedFrom || currentTreeMeta?.linkedFrom) ? (
-          <div className="linked-tree-header-badge">
-            <button
-              type="button"
-              className="linked-tree-nav-btn"
-              onClick={() => {
-                const mainId = (tree.linkedFrom || currentTreeMeta?.linkedFrom)!.mainTreeId
-                if (onOpenTree) onOpenTree(mainId)
-              }}
-              title={`الانتقال إلى الشجرة الرئيسية «${(tree.linkedFrom || currentTreeMeta?.linkedFrom)!.mainTreeName}»`}
-            >
-              <span className="badge-icon">
-                {(tree.linkedFrom || currentTreeMeta?.linkedFrom)!.type === 'daughter-branch' ? '🧬' : '🤝'}
-              </span>
-              <span>
-                متصلة بـ «{(tree.linkedFrom || currentTreeMeta?.linkedFrom)!.mainTreeName}»
-                {(tree.linkedFrom || currentTreeMeta?.linkedFrom)!.personName ? ` (أم/صلة: ${(tree.linkedFrom || currentTreeMeta?.linkedFrom)!.personName})` : ''}
-              </span>
-            </button>
-            <button
-              type="button"
-              className="unlink-mini-btn"
-              onClick={() => void handleLinkExistingTree(treeId, null)}
-              title="فك الارتباط لتصبح هذه الشجرة مستقلة ومنفصلة تماماً"
-            >
-              ✂️ فك الارتباط (جعلها مستقلة)
-            </button>
-          </div>
-        ) : (
-          <button
-            type="button"
-            className="compact-button"
-            onClick={() => setIsLinkModalOpen(true)}
-            title="ربط هذه الشجرة كفرع لشجرة أخرى (مثلاً: أخت الجد الخامس هي أم لهذه الشجرة)"
-          >
-            🔗 ربط كفرع بشجرة أخرى
-          </button>
-        )}
+        {(() => {
+          const activeLink = tree.linkedFrom || currentTreeMeta?.linkedFrom
+          if (!activeLink) {
+            return (
+              <button
+                type="button"
+                className="compact-button"
+                onClick={() => setIsLinkModalOpen(true)}
+                title="ربط هذه الشجرة كفرع لشجرة أخرى (مثلاً: أخت الجد الخامس هي أم لهذه الشجرة)"
+              >
+                🔗 ربط كفرع بشجرة أخرى
+              </button>
+            )
+          }
+          return (
+            <div className="linked-tree-header-badge">
+              <button
+                type="button"
+                className="linked-tree-nav-btn"
+                onClick={() => {
+                  if (onOpenTree) onOpenTree(activeLink.mainTreeId)
+                }}
+                title={`الانتقال إلى الشجرة الرئيسية «${activeLink.mainTreeName}»`}
+              >
+                <span className="badge-icon">
+                  {activeLink.type === 'daughter-branch' ? '🧬' : '🤝'}
+                </span>
+                <span>
+                  متصلة بـ «{activeLink.mainTreeName}»
+                  {activeLink.personName ? ` (أم/صلة: ${activeLink.personName})` : ''}
+                </span>
+              </button>
+              <button
+                type="button"
+                className="unlink-mini-btn"
+                onClick={() => void handleLinkExistingTree(treeId, null)}
+                title="فك الارتباط لتصبح هذه الشجرة مستقلة ومنفصلة تماماً"
+              >
+                ✂️ فك الارتباط (جعلها مستقلة)
+              </button>
+            </div>
+          )
+        })()}
 
         <button
           type="button"
@@ -1297,13 +1789,24 @@ function TreeApp({
           </button>
           <button
             type="button"
+            className={`phase-button phase${isMothersPhase ? ' active' : ''}`}
+            onClick={() => {
+              tree.goToPhase('assign-mothers')
+              setReviewFocus('mothers')
+            }}
+            title="الانتقال إلى مرحلة ربط الأمهات (للمتزوجين بأكثر من واحدة)"
+          >
+            ٣ · الأمهات{multiWifeCount > 0 ? ` (${multiWifeCount.toLocaleString('ar')})` : ''}
+          </button>
+          <button
+            type="button"
             className={`phase-button phase${isComplete ? ' active' : ''}`}
             onClick={() => {
               tree.goToPhase('complete')
             }}
             title="الانتقال إلى مرحلة المراجعة"
           >
-            ٣ · المراجعة
+            ٤ · المراجعة
           </button>
         </div>
         <div className="counts">
@@ -1359,6 +1862,7 @@ function TreeApp({
                     lineageText={lineageText}
                     isCurrent={!isEditingEarlier && isWivesPhase}
                     progressLabel={wivesProgressLabel}
+                    continueLabel={wivesContinueLabel}
                     currentTreeId={treeId}
                     currentTreeName={tree.root ? `شجرة ${tree.root.name}` : undefined}
                     availableTrees={sessions}
@@ -1387,11 +1891,23 @@ function TreeApp({
                     person={selectedPerson}
                     root={tree.root}
                     lineageText={lineageText}
+                    isCurrent={!isEditingEarlier && isMothersPhase}
+                    progressLabel={mothersProgressLabel}
+                    continueLabel={mothersContinueLabel}
                     onSave={(assignments) => {
                       tree.setChildrenMothers(selectedPerson.id, assignments)
                       showSaved(selectedPerson.id)
                     }}
-                    onBack={() => setReviewFocus(isWivesPhase ? 'wives' : 'children')}
+                    onSaveAndContinue={(assignments) => {
+                      tree.setMothersAndContinue(selectedPerson.id, assignments)
+                      setSelectedId(null)
+                    }}
+                    onReturnToCurrent={() => setSelectedId(null)}
+                    onSkip={isMothersPhase ? () => {
+                      tree.skipMotherAndContinue()
+                      setSelectedId(null)
+                    } : undefined}
+                    onBack={() => setReviewFocus(isWivesPhase ? 'wives' : isMothersPhase ? 'mothers' : 'children')}
                   />
                 ) : (
                   <ChildrenBatchForm
@@ -1442,9 +1958,36 @@ function TreeApp({
               />
             )}
           </>
+        ) : isMothersPhase && tree.malesQueue.length === 0 ? (
+          <section className="stage complete-stage">
+            <p className="eyebrow">مرحلة الأمهات</p>
+            <h2>لا يوجد رجال متعددو الزوجات</h2>
+            <p className="lede">
+              جميع الرجال المسجلين في هذه الشجرة لديهم زوجة واحدة فقط أو بدون زوجات.
+              تم تعيين أمهات الأبناء تلقائياً لعدم وجود تعدد زوجات يتطلب التحديد اليدوي.
+            </p>
+            <div className="actions">
+              <button
+                className="primary"
+                type="button"
+                onClick={() => tree.goToPhase('complete')}
+              >
+                الانتقال إلى المراجعة ←
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  tree.goToPhase('add-wives')
+                  setReviewFocus('wives')
+                }}
+              >
+                العودة إلى الزوجات
+              </button>
+            </div>
+          </section>
         ) : (
           <section className="stage complete-stage">
-            <p className="eyebrow">اكتمل إدخال الأشخاص والزوجات</p>
+            <p className="eyebrow">اكتمل إدخال الأشخاص والزوجات والأمهات</p>
             <h2>أصبحت الشجرة جاهزة للمراجعة</h2>
             <p className="lede">
               سُجّل {arabicCount(counts.males, 'رجل', 'رجال')} و
@@ -1468,6 +2011,18 @@ function TreeApp({
               >
                 مراجعة الزوجات رجلاً برجُل
               </button>
+              {multiWifeCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setReviewFocus('mothers')
+                    tree.startMothersPhase()
+                    setSelectedId(null)
+                  }}
+                >
+                  مراجعة الأمهات لمتعددي الزوجات ({multiWifeCount.toLocaleString('ar')})
+                </button>
+              )}
               <button
                 onClick={() =>
                   download(
@@ -1571,9 +2126,11 @@ function TreeApp({
         <p className="tree-help">
           {isWivesPhase
             ? 'اختر أي رجل لمراجعة زوجاته أو تعديلها.'
-            : isComplete
-              ? 'اختر أي رجل لمراجعة أبنائه أو زوجاته أو أمهاتهم.'
-              : 'اختر أي رجل لمراجعة أبنائه وبناته.'}
+            : isMothersPhase
+              ? 'اختر رجلاً لتعديل أمهات أولاده (يتم حصر متعددي الزوجات فقط).'
+              : isComplete
+                ? 'اختر أي رجل لمراجعة أبنائه أو زوجاته أو أمهاتهم.'
+                : 'اختر أي رجل لمراجعة أبنائه وبناته.'}
         </p>
         <TreeRoot
           person={tree.root}

@@ -1,14 +1,28 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-import type { DbPerson, Person, Session, TreeState } from './types'
+import { relationalToTree, treeToRelational } from './relationalAdapter'
+import type {
+  DbPerson,
+  Person,
+  RelationalPerson,
+  RelationalTreeBundle,
+  RelationalUnion,
+  Session,
+  TreeState,
+} from './types'
 
 const DB_NAME = 'nasab-offline-db'
-const DB_VERSION = 1
+const DB_VERSION = 2
 
 export interface LocalDatabase {
-  put<T>(storeName: 'sessions' | 'persons', value: T): Promise<void>
-  get<T>(storeName: 'sessions' | 'persons', key: string): Promise<T | undefined>
-  getAll<T>(storeName: 'sessions' | 'persons'): Promise<T[]>
-  delete(storeName: 'sessions' | 'persons', key: string): Promise<void>
+  put<T>(storeName: 'sessions' | 'persons' | 'unions', value: T): Promise<void>
+  get<T>(storeName: 'sessions' | 'persons' | 'unions', key: string): Promise<T | undefined>
+  getAll<T>(storeName: 'sessions' | 'persons' | 'unions'): Promise<T[]>
+  getAllByIndex<T>(
+    storeName: 'sessions' | 'persons' | 'unions',
+    indexName: string,
+    query: IDBValidKey | IDBKeyRange,
+  ): Promise<T[]>
+  delete(storeName: 'sessions' | 'persons' | 'unions', key: string): Promise<void>
 }
 
 let dbPromise: Promise<IDBDatabase> | null = null
@@ -29,7 +43,23 @@ function openIndexedDb(): Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains('persons')) {
         const personStore = db.createObjectStore('persons', { keyPath: 'id' })
         personStore.createIndex('sessionId', 'sessionId', { unique: false })
+        personStore.createIndex('treeId', 'treeId', { unique: false })
+        personStore.createIndex('fatherId', 'fatherId', { unique: false })
         personStore.createIndex('synced', 'synced', { unique: false })
+      } else {
+        const personStore = request.transaction!.objectStore('persons')
+        if (!personStore.indexNames.contains('treeId')) {
+          personStore.createIndex('treeId', 'treeId', { unique: false })
+        }
+        if (!personStore.indexNames.contains('fatherId')) {
+          personStore.createIndex('fatherId', 'fatherId', { unique: false })
+        }
+      }
+      if (!db.objectStoreNames.contains('unions')) {
+        const unionStore = db.createObjectStore('unions', { keyPath: 'id' })
+        unionStore.createIndex('treeId', 'treeId', { unique: false })
+        unionStore.createIndex('husbandId', 'husbandId', { unique: false })
+        unionStore.createIndex('synced', 'synced', { unique: false })
       }
     }
 
@@ -44,7 +74,7 @@ export async function getDb(): Promise<LocalDatabase> {
   const idb = await openIndexedDb()
 
   return {
-    async put<T>(storeName: 'sessions' | 'persons', value: T): Promise<void> {
+    async put<T>(storeName: 'sessions' | 'persons' | 'unions', value: T): Promise<void> {
       return new Promise<void>((resolve, reject) => {
         const tx = idb.transaction(storeName, 'readwrite')
         const store = tx.objectStore(storeName)
@@ -54,7 +84,7 @@ export async function getDb(): Promise<LocalDatabase> {
       })
     },
 
-    async get<T>(storeName: 'sessions' | 'persons', key: string): Promise<T | undefined> {
+    async get<T>(storeName: 'sessions' | 'persons' | 'unions', key: string): Promise<T | undefined> {
       return new Promise<T | undefined>((resolve, reject) => {
         const tx = idb.transaction(storeName, 'readonly')
         const store = tx.objectStore(storeName)
@@ -64,7 +94,7 @@ export async function getDb(): Promise<LocalDatabase> {
       })
     },
 
-    async getAll<T>(storeName: 'sessions' | 'persons'): Promise<T[]> {
+    async getAll<T>(storeName: 'sessions' | 'persons' | 'unions'): Promise<T[]> {
       return new Promise<T[]>((resolve, reject) => {
         const tx = idb.transaction(storeName, 'readonly')
         const store = tx.objectStore(storeName)
@@ -74,7 +104,22 @@ export async function getDb(): Promise<LocalDatabase> {
       })
     },
 
-    async delete(storeName: 'sessions' | 'persons', key: string): Promise<void> {
+    async getAllByIndex<T>(
+      storeName: 'sessions' | 'persons' | 'unions',
+      indexName: string,
+      query: IDBValidKey | IDBKeyRange,
+    ): Promise<T[]> {
+      return new Promise<T[]>((resolve, reject) => {
+        const tx = idb.transaction(storeName, 'readonly')
+        const store = tx.objectStore(storeName)
+        const index = store.index(indexName)
+        const req = index.getAll(query)
+        req.onsuccess = () => resolve((req.result as T[]) || [])
+        req.onerror = () => reject(req.error)
+      })
+    },
+
+    async delete(storeName: 'sessions' | 'persons' | 'unions', key: string): Promise<void> {
       return new Promise<void>((resolve, reject) => {
         const tx = idb.transaction(storeName, 'readwrite')
         const store = tx.objectStore(storeName)
@@ -187,8 +232,19 @@ export async function downloadSessionFromSupabase(
 
   await db.put('sessions', localSession)
 
-  for (const person of persons) {
-    await db.put('persons', { ...person, sessionId, synced: true })
+  // Populate normalized relational stores
+  if (sessionData.state) {
+    const bundle = treeToRelational(sessionId, sessionData.name, sessionData.state, sessionData.updated_at)
+    for (const p of bundle.persons) {
+      await db.put('persons', { ...p, sessionId, synced: true })
+    }
+    for (const u of bundle.unions) {
+      await db.put('unions', { ...u, synced: true })
+    }
+  } else {
+    for (const person of persons) {
+      await db.put('persons', { ...person, sessionId, synced: true })
+    }
   }
 
   // Also sync with localStorage cache for backwards compatibility
@@ -217,7 +273,7 @@ export async function getSession(id: string): Promise<Session | null> {
 }
 
 /**
- * Save or update session in IndexedDB
+ * Save or update session in IndexedDB (populates both session doc and relational stores)
  */
 export async function saveSessionLocally(
   session: Session,
@@ -234,11 +290,14 @@ export async function saveSessionLocally(
   }
   await db.put('sessions', updatedSession)
 
-  // Also save extracted persons
-  if (session.state?.root) {
-    const persons = extractPersons(session.state.root, session.id, updatedSession.updated_at)
-    for (const p of persons) {
-      await db.put('persons', { ...p, synced: markSynced })
+  // Save normalized relational records
+  if (session.state) {
+    const bundle = treeToRelational(session.id, session.name, session.state, updatedSession.updated_at)
+    for (const p of bundle.persons) {
+      await db.put('persons', { ...p, sessionId: session.id, synced: markSynced })
+    }
+    for (const u of bundle.unions) {
+      await db.put('unions', { ...u, synced: markSynced })
     }
   }
 
@@ -251,11 +310,102 @@ export async function saveSessionLocally(
 }
 
 /**
- * Delete a session and its associated persons from IndexedDB
+ * Save normalized relational tree directly to IndexedDB
+ */
+export async function saveRelationalTreeLocally(
+  bundle: RelationalTreeBundle,
+  markSynced: boolean = false
+): Promise<void> {
+  const db = await getDb()
+  const treeState = relationalToTree(bundle)
+  const session: Session = {
+    id: bundle.tree.id,
+    name: bundle.tree.name,
+    state: treeState,
+    updated_at: bundle.tree.updated_at,
+    downloaded: true,
+    synced: markSynced,
+    rootAncestor: treeState.root?.name || bundle.tree.name,
+    linkedFrom: bundle.tree.linkedFrom,
+  }
+
+  await db.put('sessions', session)
+
+  for (const person of bundle.persons) {
+    await db.put('persons', { ...person, sessionId: bundle.tree.id, synced: markSynced })
+  }
+
+  for (const union of bundle.unions) {
+    await db.put('unions', { ...union, synced: markSynced })
+  }
+
+  try {
+    localStorage.setItem(`nasab-cache-v1-${bundle.tree.id}`, JSON.stringify(treeState))
+  } catch {
+    // ignore
+  }
+}
+
+/**
+ * Load normalized relational tree from IndexedDB
+ */
+export async function getRelationalTreeLocally(
+  treeId: string
+): Promise<RelationalTreeBundle | null> {
+  const db = await getDb()
+  const session = await db.get<Session>('sessions', treeId)
+  if (!session) return null
+
+  const persons = await db.getAllByIndex<RelationalPerson>('persons', 'treeId', treeId)
+  const unions = await db.getAllByIndex<RelationalUnion>('unions', 'treeId', treeId)
+
+  // If persons or unions not populated in relational format yet, extract from session.state
+  if (persons.length === 0 && session.state) {
+    return treeToRelational(session.id, session.name, session.state, session.updated_at)
+  }
+
+  const relTree = {
+    id: session.id,
+    name: session.name,
+    rootPersonId: session.state?.root?.id || null,
+    phase: session.state?.phase || 'setup',
+    currentPersonId: session.state?.currentPersonId || null,
+    maleCounter: session.state?.maleCounter || 1,
+    femaleCounter: session.state?.femaleCounter || 0,
+    malesQueue: session.state?.malesQueue || [],
+    currentMaleIndex: session.state?.currentMaleIndex || 0,
+    linkedFrom: session.linkedFrom,
+    updated_at: session.updated_at,
+    synced: session.synced,
+  }
+
+  return {
+    tree: relTree,
+    persons,
+    unions,
+  }
+}
+
+/**
+ * Delete a session and its associated persons and unions from IndexedDB
  */
 export async function deleteSessionLocally(sessionId: string): Promise<void> {
   const db = await getDb()
   await db.delete('sessions', sessionId)
+
+  // Clean up relational persons and unions
+  try {
+    const persons = await db.getAllByIndex<RelationalPerson>('persons', 'treeId', sessionId)
+    for (const p of persons) {
+      await db.delete('persons', p.id)
+    }
+    const unions = await db.getAllByIndex<RelationalUnion>('unions', 'treeId', sessionId)
+    for (const u of unions) {
+      await db.delete('unions', u.id)
+    }
+  } catch {
+    // ignore
+  }
 
   // Remove local cache
   try {
@@ -281,5 +431,59 @@ export async function markSessionSynced(sessionId: string): Promise<void> {
   const session = await db.get<Session>('sessions', sessionId)
   if (session) {
     await db.put('sessions', { ...session, synced: true })
+  }
+}
+
+const LOCAL_MIGRATION_KEY = 'nasab-relational-migration-v1'
+
+/**
+ * One-time batch migration: converts all existing local sessions' JSON state
+ * into normalized relational records (persons + unions) in IndexedDB.
+ * Safe to call on every app start — it only runs once.
+ */
+export async function migrateAllLocalSessions(): Promise<void> {
+  // Skip if already migrated
+  if (localStorage.getItem(LOCAL_MIGRATION_KEY) === 'done') return
+
+  try {
+    const db = await getDb()
+    const sessions = await db.getAll<Session>('sessions')
+    let migrated = 0
+
+    for (const session of sessions) {
+      if (!session.state?.root) continue
+
+      // Check if this session already has relational persons
+      const existingPersons = await db.getAllByIndex<RelationalPerson>(
+        'persons', 'treeId', session.id
+      )
+      if (existingPersons.length > 0) continue
+
+      // Convert JSON tree → relational records
+      const bundle = treeToRelational(
+        session.id,
+        session.name,
+        session.state,
+        session.updated_at
+      )
+
+      for (const p of bundle.persons) {
+        await db.put('persons', { ...p, sessionId: session.id, synced: session.synced ?? true })
+      }
+      for (const u of bundle.unions) {
+        await db.put('unions', { ...u, synced: session.synced ?? true })
+      }
+
+      migrated++
+    }
+
+    localStorage.setItem(LOCAL_MIGRATION_KEY, 'done')
+
+    if (migrated > 0) {
+      console.log(`[nasab] Migrated ${migrated} local trees to relational format`)
+    }
+  } catch (err) {
+    console.warn('[nasab] Local relational migration failed, will retry next load:', err)
+    // Don't set the flag so it retries on next app start
   }
 }

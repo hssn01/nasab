@@ -22,3 +22,9 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Standalone public viewer app repository
+viewer-app/
+
+# Local data backups
+*_backup.json

@@ -4,11 +4,15 @@
 
 .print-page-wrapper {
   min-height: 100vh;
+  width: 100%;
+  max-width: 100vw;
   background-color: #24272c;
   color: #1a1a1a;
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: stretch;
+  box-sizing: border-box;
+  overflow-x: hidden;
 }
 
 /* ── Screen-only Floating Controls ── */
@@ -17,21 +21,48 @@
   position: sticky;
   top: 0;
   z-index: 100;
-  background: rgba(30, 33, 38, 0.95);
-  backdrop-filter: blur(10px);
+  background: rgba(30, 33, 38, 0.98);
+  backdrop-filter: blur(12px);
   border-bottom: 1px solid rgba(255, 255, 255, 0.12);
-  padding: 12px 24px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
+  padding: 10px 20px;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.45);
+  box-sizing: border-box;
 }
 
 .print-toolbar {
-  max-width: 1200px;
+  max-width: 1400px;
   margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.print-toolbar-top-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: 12px;
   flex-wrap: wrap;
+  width: 100%;
+}
+
+.print-toolbar-nav-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.print-toolbar-options-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding-top: 6px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  width: 100%;
 }
 
 .print-toolbar-group {
@@ -97,6 +128,34 @@
   border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
+.print-select-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: #cbd5e1;
+  background: rgba(255, 255, 255, 0.06);
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.print-toolbar-select {
+  background: #1e293b;
+  color: #f8fafc;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+  padding: 3px 8px;
+  font-size: 12.5px;
+  cursor: pointer;
+  outline: none;
+  font-family: inherit;
+}
+
+.print-toolbar-select:focus {
+  border-color: #c29b38;
+}
+
 .print-toggle-label input[type="checkbox"] {
   accent-color: #c29b38;
   cursor: pointer;
@@ -129,10 +188,13 @@
 
 /* ── Screen Page Preview Canvas ── */
 .print-stage {
-  padding: 36px 20px 60px;
+  padding: 30px 16px 60px;
   width: 100%;
+  max-width: 100vw;
+  box-sizing: border-box;
   display: flex;
   justify-content: center;
+  overflow-x: auto;
 }
 
 .tribute-paper {
@@ -142,6 +204,8 @@
   border-radius: 4px;
   padding: 40px 48px;
   position: relative;
+  box-sizing: border-box;
+  max-width: 100%;
   transition: width 0.3s ease;
   font-family: 'Amiri', 'Traditional Arabic', 'Scheherazade New', Tahoma, 'Segoe UI', serif;
   -webkit-print-color-adjust: exact;
@@ -149,13 +213,220 @@
 }
 
 .tribute-paper.portrait {
-  width: 210mm;
+  width: min(210mm, 100%);
   min-height: 297mm;
 }
 
 .tribute-paper.landscape {
-  width: 297mm;
+  width: min(297mm, 100%);
   min-height: 210mm;
+}
+
+/* ── Print Density Variations ── */
+.tribute-paper.density-compact {
+  font-size: 11.5px;
+}
+
+.tribute-paper.density-compact .family-entry-card {
+  padding: 7px 10px 5px !important;
+  margin-bottom: 5px !important;
+}
+
+.tribute-paper.density-compact .entry-father-name {
+  font-size: 14px !important;
+}
+
+.tribute-paper.density-compact .entry-generation-badge {
+  font-size: 9px !important;
+  padding: 0 5px !important;
+}
+
+.tribute-paper.density-compact .child-chip {
+  font-size: 11px !important;
+  padding: 1px 5px !important;
+}
+
+.tribute-paper.density-compact .entry-lineage-breadcrumb {
+  font-size: 10px !important;
+  margin-bottom: 2px !important;
+}
+
+.tribute-paper.density-compact .entry-wives-row {
+  font-size: 11px !important;
+  margin-bottom: 3px !important;
+}
+
+.tribute-paper.density-compact .entry-wives-label {
+  font-size: 11px !important;
+}
+
+.tribute-paper.density-compact .entry-children-col {
+  min-width: 150px !important;
+}
+
+.tribute-paper.density-compact .tribute-stats-bar {
+  padding: 8px 12px !important;
+  gap: 8px !important;
+  margin-bottom: 16px !important;
+}
+
+.tribute-paper.density-compact .stat-item-val {
+  font-size: 16px !important;
+}
+
+.tribute-paper.density-compact .outline-tree-body {
+  font-size: 11.5px !important;
+  line-height: 1.4 !important;
+}
+
+.tribute-paper.density-spacious {
+  font-size: 14.5px;
+}
+
+.tribute-paper.density-spacious .family-entry-card {
+  padding: 16px 18px 14px !important;
+  margin-bottom: 14px !important;
+}
+
+.tribute-paper.density-spacious .entry-father-name {
+  font-size: 18px !important;
+}
+
+.tribute-paper.density-spacious .child-chip {
+  font-size: 13.5px !important;
+  padding: 3px 10px !important;
+}
+
+.tribute-paper.density-spacious .entry-lineage-breadcrumb {
+  font-size: 12.5px !important;
+}
+
+/* ── Dedicated Standalone Cover Page ── */
+.tribute-cover-page {
+  margin-bottom: 28px;
+}
+
+.tribute-cover-frame {
+  border: 3px double #99782d;
+  padding: 32px 36px;
+  border-radius: 6px;
+  background: radial-gradient(circle at center, #ffffff 0%, #fbf9f2 100%);
+  position: relative;
+}
+
+.tribute-cover-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.tribute-cover-seal-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 20px;
+  padding-top: 14px;
+  border-top: 1px dashed #d4c49d;
+  font-size: 12px;
+  color: #78622e;
+}
+
+.tribute-seal-stamp {
+  font-weight: 700;
+  color: #8c6a1e;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.tribute-seal-text {
+  color: #8c7b64;
+  font-size: 11.5px;
+}
+
+.cover-page-screen-break {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  margin: 32px 0 24px;
+  color: #a89070;
+  font-size: 12px;
+  font-weight: 600;
+  text-align: center;
+}
+
+.cover-page-screen-break::before,
+.cover-page-screen-break::after {
+  content: '';
+  height: 1px;
+  flex: 1;
+  background: #e2d7ba;
+}
+
+/* ── Major Branch Dividers ── */
+.tribute-branch-divider {
+  background: linear-gradient(90deg, #f7f3e8 0%, #fdfbf7 100%);
+  border-right: 4px solid #b38b30;
+  border-top: 1px solid #e3d8bf;
+  border-bottom: 1px solid #e3d8bf;
+  border-left: 1px solid #e3d8bf;
+  border-radius: 6px;
+  padding: 10px 16px;
+  margin: 22px 0 12px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  page-break-inside: avoid;
+  break-inside: avoid;
+  page-break-after: avoid;
+  break-after: avoid;
+}
+
+.branch-divider-icon {
+  font-size: 22px;
+  line-height: 1;
+}
+
+.branch-divider-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.branch-divider-title {
+  font-size: 16px;
+  font-weight: 800;
+  color: #3b2a0c;
+  margin: 0;
+  line-height: 1.3;
+}
+
+.branch-divider-desc {
+  font-size: 11.5px;
+  color: #78622e;
+}
+
+/* ── Print Table Shell (Running Headers & Footers on every printed page) ── */
+.print-table-shell {
+  display: block;
+  width: 100%;
+  border-collapse: collapse;
+  border: none;
+}
+
+.print-running-thead,
+.print-running-tfoot {
+  display: none;
+}
+
+.print-table-body,
+.print-table-body > tr,
+.print-table-body > tr > td {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: none;
 }
 
 /* ── Ornamental Borders ── */
@@ -642,6 +913,603 @@
   margin-top: 14px;
 }
 
+/* ── Interactive Clickable Elements & Highlights ── */
+.is-clickable {
+  cursor: pointer;
+  transition: all 0.18s ease;
+  user-select: none;
+}
+
+.is-clickable:hover {
+  filter: brightness(0.94);
+  transform: translateY(-1px);
+}
+
+.is-clickable:active {
+  transform: translateY(0);
+}
+
+.family-entry-card .entry-father-header.is-clickable:hover {
+  background: rgba(184, 134, 11, 0.08);
+  border-radius: 4px;
+}
+
+.family-entry-wrapper.highlight-pulse .family-entry-card {
+  animation: tributePulse 1.8s ease-in-out;
+}
+
+@keyframes tributePulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(194, 155, 56, 0.7);
+    outline: 2px solid #c29b38;
+  }
+  50% {
+    box-shadow: 0 0 18px 4px rgba(194, 155, 56, 0.5);
+    outline: 2px solid #c29b38;
+    background: #fffdf5;
+  }
+  100% {
+    box-shadow: none;
+    outline: none;
+  }
+}
+
+/* ── Person Detail Modal / Bottom Sheet ── */
+.tribute-person-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 999;
+  background: rgba(15, 17, 23, 0.75);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  animation: tributeFadeIn 0.2s ease-out;
+}
+
+@keyframes tributeFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.tribute-person-modal {
+  background: #ffffff;
+  color: #1e293b;
+  width: 100%;
+  max-width: 540px;
+  max-height: 85vh;
+  border-radius: 16px;
+  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(194, 155, 56, 0.3);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  font-family: 'Amiri', 'Traditional Arabic', 'Scheherazade New', Tahoma, sans-serif;
+  animation: tributeSlideUp 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes tributeSlideUp {
+  from { transform: translateY(24px) scale(0.97); opacity: 0; }
+  to { transform: translateY(0) scale(1); opacity: 1; }
+}
+
+.tribute-modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 18px 20px 14px;
+  background: linear-gradient(135deg, #fdfbf7 0%, #f7f2e4 100%);
+  border-bottom: 1px solid #e8dfc8;
+}
+
+.tribute-modal-title-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.tribute-modal-badges {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.tribute-badge-gender {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 12px;
+}
+
+.tribute-badge-gender.male {
+  background: #e0f2fe;
+  color: #0369a1;
+  border: 1px solid #bae6fd;
+}
+
+.tribute-badge-gender.female {
+  background: #fce7f3;
+  color: #be185d;
+  border: 1px solid #fbcfe8;
+}
+
+.tribute-badge-gen {
+  background: #fef3c7;
+  color: #92400e;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 12px;
+  border: 1px solid #fde68a;
+}
+
+.tribute-badge-id {
+  background: #f1f5f9;
+  color: #475569;
+  font-family: monospace;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+}
+
+.tribute-modal-name {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 700;
+  color: #1e1b13;
+}
+
+.tribute-modal-close {
+  background: rgba(0, 0, 0, 0.05);
+  border: none;
+  font-size: 16px;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: #64748b;
+  transition: all 0.2s;
+}
+
+.tribute-modal-close:hover {
+  background: rgba(0, 0, 0, 0.1);
+  color: #0f172a;
+}
+
+.tribute-modal-section {
+  padding: 14px 20px;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.tribute-modal-lineage {
+  background: #fcfbfa;
+}
+
+.tribute-modal-sec-title {
+  display: block;
+  font-size: 12px;
+  font-weight: 700;
+  color: #8c7b64;
+  margin-bottom: 6px;
+}
+
+.tribute-lineage-text {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.6;
+  color: #2c2518;
+  font-weight: 600;
+}
+
+.tribute-modal-parents {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.tribute-info-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+}
+
+.tribute-info-label {
+  font-weight: 700;
+  color: #71624c;
+  min-width: 48px;
+}
+
+.tribute-person-link-btn {
+  background: #f8fafc;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 13.5px;
+  color: #0284c7;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  transition: all 0.2s;
+}
+
+.tribute-person-link-btn:hover {
+  background: #e0f2fe;
+  border-color: #7dd3fc;
+  color: #0369a1;
+}
+
+.tribute-link-id {
+  font-family: monospace;
+  font-size: 11px;
+  color: #64748b;
+}
+
+.tribute-info-val {
+  font-size: 14px;
+  color: #334155;
+  font-weight: 600;
+}
+
+.tribute-modal-chips-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.tribute-modal-wife-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #fdfbf7;
+  border: 1px solid #e7ded0;
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 13.5px;
+}
+
+.tribute-wife-icon {
+  color: #92400e;
+  margin-left: 6px;
+}
+
+.tribute-wife-name {
+  color: #292524;
+  font-weight: 600;
+  flex: 1;
+}
+
+.tribute-inline-link {
+  background: transparent;
+  border: none;
+  color: #0284c7;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.tribute-inline-link:hover {
+  background: #e0f2fe;
+  text-decoration: underline;
+}
+
+.tribute-children-group {
+  margin-top: 8px;
+}
+
+.tribute-children-label {
+  display: block;
+  font-size: 12px;
+  font-weight: 700;
+  color: #64748b;
+  margin-bottom: 6px;
+}
+
+.tribute-children-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.tribute-child-btn {
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 13px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 600;
+  transition: all 0.2s;
+}
+
+.tribute-child-btn.male {
+  background: #f0f9ff;
+  border-color: #bae6fd;
+  color: #0369a1;
+}
+
+.tribute-child-btn.male:hover {
+  background: #e0f2fe;
+  border-color: #7dd3fc;
+}
+
+.tribute-child-btn.female {
+  background: #fdf2f8;
+  border-color: #fbcfe8;
+  color: #be185d;
+}
+
+.tribute-child-btn.female:hover {
+  background: #fce7f3;
+  border-color: #f472b6;
+}
+
+.child-btn-id {
+  font-family: monospace;
+  font-size: 10.5px;
+  opacity: 0.75;
+}
+
+.tribute-modal-actions {
+  padding: 14px 20px;
+  background: #f8fafc;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  border-top: 1px solid #e2e8f0;
+}
+
+.tribute-modal-action-btn {
+  padding: 8px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.2s;
+}
+
+.tribute-modal-action-btn.primary {
+  background: #c29b38;
+  color: #1a1200;
+  border: 1px solid #d4af37;
+  flex: 1;
+  justify-content: center;
+}
+
+.tribute-modal-action-btn.primary:hover {
+  background: #d4af37;
+}
+
+.tribute-modal-action-btn.secondary {
+  background: #1e293b;
+  color: #f8fafc;
+  border: 1px solid #334155;
+}
+
+.tribute-modal-action-btn.secondary:hover {
+  background: #334155;
+}
+
+.tribute-modal-action-btn.ghost {
+  background: transparent;
+  color: #64748b;
+  border: 1px solid #cbd5e1;
+}
+
+.tribute-modal-action-btn.ghost:hover {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+
+/* ── Mobile Phone Screen Optimizations (@media screen) ── */
+@media screen and (max-width: 840px) {
+  .print-toolbar-container {
+    padding: 8px 10px;
+    position: sticky;
+    top: 0;
+  }
+
+  .print-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+
+  .print-toolbar-group {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    overflow-x: auto;
+    padding-bottom: 3px;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    flex-wrap: nowrap;
+  }
+
+  .print-toolbar-group::-webkit-scrollbar {
+    display: none;
+  }
+
+  .print-action-primary {
+    padding: 7px 16px;
+    font-size: 13.5px;
+    width: 100%;
+    justify-content: center;
+  }
+
+  .print-nav-btn {
+    padding: 5px 10px;
+    font-size: 12px;
+    white-space: nowrap;
+  }
+
+  .print-toggle-label,
+  .print-select-label {
+    padding: 3px 7px;
+    font-size: 11.5px;
+    white-space: nowrap;
+  }
+
+  .print-stage {
+    padding: 10px 4px 60px;
+    width: 100%;
+    box-sizing: border-box;
+    overflow-x: hidden;
+  }
+
+  /* Force paper to fit phone screen width cleanly without horizontal scroll cutoffs */
+  .tribute-paper.portrait,
+  .tribute-paper.landscape {
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    min-height: auto !important;
+    padding: 14px 8px !important;
+    box-sizing: border-box !important;
+    border-radius: 8px !important;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25) !important;
+  }
+
+  .tribute-outer-border {
+    padding: 6px 4px !important;
+    border-width: 2px !important;
+  }
+
+  .tribute-inner-border {
+    padding: 8px 6px !important;
+    border-width: 1px !important;
+  }
+
+  .tribute-cover-frame {
+    padding: 16px 10px !important;
+  }
+
+  .tribute-main-title {
+    font-size: 22px !important;
+    margin: 10px 0 6px !important;
+  }
+
+  .tribute-ancestor-lead {
+    font-size: 16px !important;
+  }
+
+  .tribute-hadith-quote {
+    font-size: 13px !important;
+    padding: 8px !important;
+    margin: 10px 0 !important;
+  }
+
+  .tribute-intro-dedication {
+    font-size: 12px !important;
+    padding: 8px 10px !important;
+  }
+
+  .tribute-stats-bar {
+    gap: 4px !important;
+    padding: 8px 4px !important;
+    flex-wrap: wrap !important;
+  }
+
+  .stat-item-label {
+    font-size: 10px !important;
+  }
+
+  .stat-item-val {
+    font-size: 15px !important;
+  }
+
+  /* Family entry cards on mobile */
+  .family-entry-card {
+    padding: 10px 8px 8px !important;
+    margin-bottom: 8px !important;
+    margin-right: 0 !important;
+    border-radius: 6px !important;
+  }
+
+  .entry-father-header {
+    flex-wrap: wrap;
+    gap: 4px 8px;
+  }
+
+  .entry-father-name {
+    font-size: 16px !important;
+  }
+
+  .entry-generation-badge {
+    font-size: 9.5px !important;
+    padding: 1px 5px !important;
+  }
+
+  .entry-wives-row {
+    font-size: 12px !important;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+
+  .entry-wife-chip {
+    font-size: 11.5px !important;
+    padding: 2px 6px !important;
+    white-space: normal !important;
+    line-height: 1.35;
+  }
+
+  .entry-children-row {
+    flex-direction: column !important;
+    gap: 6px !important;
+  }
+
+  .entry-children-col {
+    min-width: 0 !important;
+    width: 100% !important;
+  }
+
+  .child-chip {
+    font-size: 12px !important;
+    padding: 2px 6px !important;
+  }
+
+  .child-mother-tag {
+    font-size: 10.5px !important;
+    padding: 0 4px !important;
+  }
+
+  .tribute-branch-divider {
+    padding: 8px 10px !important;
+    margin: 14px 0 8px !important;
+  }
+
+  .branch-divider-title {
+    font-size: 15px !important;
+  }
+
+  .tribute-cert-grid {
+    grid-template-columns: 1fr !important;
+    gap: 10px !important;
+  }
+
+  .tribute-person-modal {
+    max-height: 90vh;
+    border-radius: 14px 14px 0 0;
+    margin-top: auto;
+  }
+}
+
 /* ==========================================================================
    Print Specific Rules (@media print)
    ========================================================================== */
@@ -670,6 +1538,7 @@
     padding: 0 !important;
     margin: 0 !important;
     width: 100% !important;
+    display: block !important;
   }
 
   .tribute-paper {
@@ -677,36 +1546,161 @@
     min-height: auto !important;
     box-shadow: none !important;
     border-radius: 0 !important;
-    padding: 10mm 12mm !important;
+    padding: 0 !important;
     background: #ffffff !important;
   }
 
+  /* CRITICAL FIX: Eliminate the multi-page stretching borders that deform across pages! */
   .tribute-outer-border {
-    border-color: #5c471c !important;
+    border: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    height: auto !important;
   }
 
   .tribute-inner-border {
-    border-color: #8c7138 !important;
-    background: #ffffff !important;
-    padding: 14px 18px !important;
+    border: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    min-height: auto !important;
+    background: transparent !important;
   }
 
-  .family-entry-card,
-  .tribute-footer,
-  .tribute-header,
-  .tribute-stats-bar {
+  /* Hide the loose corner ornaments on multi-page body */
+  .tribute-outer-border > .corner-ornament {
+    display: none !important;
+  }
+
+  /* ── Dedicated Standalone Cover Page (Page 1) ── */
+  .tribute-cover-page {
+    break-after: page !important;
+    page-break-after: always !important;
+    min-height: 85vh !important;
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: center !important;
+    margin: 0 !important;
+    padding: 4mm 0 !important;
     page-break-inside: avoid !important;
     break-inside: avoid !important;
   }
 
+  .tribute-cover-frame {
+    border: 2.5pt double #8c6a1e !important;
+    padding: 14mm 16mm !important;
+    position: relative !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
+    background: #ffffff !important;
+  }
+
+  /* Keep the corner ornaments inside the dedicated Cover Page frame */
+  .tribute-cover-frame .corner-ornament {
+    display: flex !important;
+  }
+
+  .cover-page-screen-break {
+    display: none !important;
+  }
+
+  /* ── Running Table Headers & Footers (Repeated on EVERY page) ── */
+  .print-table-shell {
+    display: table !important;
+    width: 100% !important;
+    border-collapse: collapse !important;
+  }
+
+  .print-running-thead {
+    display: table-header-group !important;
+  }
+
+  .print-running-tfoot {
+    display: table-footer-group !important;
+  }
+
+  .print-table-body {
+    display: table-row-group !important;
+  }
+
+  .print-table-body > tr {
+    display: table-row !important;
+  }
+
+  .print-table-body > tr > td {
+    display: table-cell !important;
+    padding: 0 !important;
+  }
+
+  .print-running-header {
+    display: flex !important;
+    justify-content: space-between !important;
+    align-items: center !important;
+    font-size: 9pt !important;
+    color: #6d5420 !important;
+    border-bottom: 1px solid #d4c49d !important;
+    padding-bottom: 2mm !important;
+    margin-bottom: 4mm !important;
+    font-family: 'Amiri', 'Traditional Arabic', serif !important;
+    font-weight: 700 !important;
+  }
+
+  .print-running-footer {
+    display: flex !important;
+    justify-content: space-between !important;
+    align-items: center !important;
+    font-size: 8pt !important;
+    color: #8c7b64 !important;
+    border-top: 1px solid #e0d7c3 !important;
+    padding-top: 2mm !important;
+    margin-top: 3mm !important;
+    font-family: 'Amiri', 'Traditional Arabic', serif !important;
+  }
+
+  /* ── Page Break Controls ── */
   .family-entry-card {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
     box-shadow: none !important;
     margin-bottom: 6px !important;
     margin-right: calc(var(--entry-depth, 0) * 8px) !important;
   }
 
+  .entry-father-header {
+    page-break-after: avoid !important;
+    break-after: avoid !important;
+  }
+
+  .tribute-branch-divider {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    page-break-after: avoid !important;
+    break-after: avoid !important;
+    margin: 12px 0 6px !important;
+    padding: 6px 12px !important;
+  }
+
+  .tribute-footer,
+  .tribute-cert-grid,
+  .tribute-stats-bar,
+  .tribute-linked-banner {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  h1, h2, h3, .tribute-section-heading {
+    page-break-after: avoid !important;
+    break-after: avoid !important;
+  }
+
   @page {
-    margin: 10mm 10mm 12mm 10mm;
+    margin: 12mm 12mm 14mm 12mm;
     size: auto;
+    @bottom-center {
+      content: "— " counter(page) " —";
+      font-family: 'Amiri', 'Traditional Arabic', serif;
+      font-size: 9.5pt;
+      color: #71624c;
+    }
   }
 }
+

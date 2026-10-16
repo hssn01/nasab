@@ -34,13 +34,21 @@ export function findPath(root: Person, id: string): Person[] {
 export function getLineageText(root: Person, id: string): string {
   const path = findPath(root, id)
   if (path.length === 0) return ''
-  const reversed = [...path].reverse()
+  const cleanPath = path.filter((p) => {
+    if (p.id === '__COMMON_ROOT__') {
+      return Boolean(p.branchMeta?.personName)
+    }
+    return true
+  })
+  if (cleanPath.length === 0) return ''
+  const reversed = [...cleanPath].reverse()
   return reversed
     .map((p, idx) => {
-      if (idx === 0) return p.name
+      const name = (p.id === '__COMMON_ROOT__' && p.branchMeta?.personName) ? p.branchMeta.personName : p.name
+      if (idx === 0) return name
       const prev = reversed[idx - 1]
       const connector = prev.gender === 'F' ? 'بنت' : 'بن'
-      return `${connector} ${p.name}`
+      return `${connector} ${name}`
     })
     .join(' ')
 }
@@ -275,11 +283,66 @@ export function wifeShortLabel(wife: Wife, root: Person): string {
   return `${wife.name || 'زوجة'}${family}`
 }
 
+export function wifeLineageFullLabel(
+  wife: Wife,
+  root: Person,
+  minAncestors: number = 4,
+): string {
+  if (!wife) return ''
+  if (wife.type === 'tree') {
+    const linked =
+      resolveWife(wife, root) ||
+      (wife.personId ? findPerson(root, wife.personId) : null)
+    if (linked) {
+      const path = findPath(root, linked.id)
+      if (path.length > 1) {
+        // Ancestors excluding self, reversed from father upwards
+        const ancestors = path.slice(0, -1).reverse()
+        const takeCount = Math.min(ancestors.length, Math.max(minAncestors, 4))
+        const chosen = ancestors.slice(0, takeCount)
+        const parts = [linked.name]
+        chosen.forEach((anc, idx) => {
+          parts.push(idx === 0 ? 'بنت' : 'بن', anc.name)
+        })
+        const fromTree = wife.treeName ? ` [من شجرة: ${wife.treeName}]` : ''
+        return `${parts.join(' ')}${fromTree}`
+      }
+      return linked.name
+    }
+    if (wife.lineageLabel) {
+      const fromTree = wife.treeName ? ` [من: ${wife.treeName}]` : ''
+      return `${wife.lineageLabel}${fromTree}`
+    }
+    if (wife.personName) {
+      const fromTree = wife.treeName ? ` [من: ${wife.treeName}]` : ''
+      return `${wife.personName}${fromTree}`
+    }
+    return `من الشجرة · ${wife.personId}`
+  }
+
+  // External wife
+  const name = wife.name?.trim() || 'زوجة'
+  const details: string[] = []
+  if (wife.family && wife.family.trim()) {
+    details.push(wife.family.trim())
+  }
+  if (wife.tribute && wife.tribute.trim()) {
+    const t = wife.tribute.trim()
+    if (!details.some((d) => d === t || d.includes(t) || t.includes(d))) {
+      details.push(t)
+    }
+  }
+  if (details.length > 0) {
+    return `${name} · ${details.join(' · ')}`
+  }
+  return name
+}
+
 export function findWifeByMotherKey(
   father: Person,
   motherKey: unknown,
 ): Wife | null {
-  if (!motherKey || !Array.isArray(father.wives)) return null
+  if (!motherKey || !Array.isArray(father.wives) || father.wives.length === 0) return null
 
   let targetId = ''
   let targetName = ''
@@ -293,23 +356,48 @@ export function findWifeByMotherKey(
         : typeof raw.personId === 'string'
           ? raw.personId.trim()
           : ''
+    if (!targetId && targetName) targetId = targetName
+    if (!targetName && targetId) targetName = targetId
   } else if (typeof motherKey === 'string') {
     targetId = motherKey.trim()
     targetName = motherKey.trim()
   }
 
+  // 1. Match by wife.id
   if (targetId) {
     const byId = father.wives.find((wife) => wife.id === targetId)
     if (byId) return byId
   }
 
+  // 2. Match by personId or union id
+  if (targetId || targetName) {
+    const key = targetId || targetName
+    const byPersonId = father.wives.find((wife) => {
+      if (wife.type === 'tree') {
+        return (
+          wife.personId === key ||
+          wife.id === key ||
+          (wife.personName && wife.personName === key)
+        )
+      }
+      return wife.id === key || wife.name === key
+    })
+    if (byPersonId) return byPersonId
+  }
+
+  // 3. Fallback partial/name matching
   if (targetName) {
-    return (
-      father.wives.find((wife) => {
-        if (wife.type === 'external') return wife.name === targetName
-        return wife.personId === targetName
-      }) ?? null
-    )
+    const norm = normalizeArabic(targetName)
+    const byName = father.wives.find((wife) => {
+      if (wife.type === 'external') {
+        return (
+          normalizeArabic(wife.name) === norm ||
+          (wife.family && normalizeArabic(wife.family) === norm)
+        )
+      }
+      return wife.personName ? normalizeArabic(wife.personName) === norm : false
+    })
+    if (byName) return byName
   }
 
   return null
@@ -320,12 +408,26 @@ export function motherDisplayLabel(
   father: Person | null,
   root: Person,
 ): string {
-  if (!child.mother) return ''
-  const motherVal: unknown = child.mother
+  let motherVal: unknown = child.mother
+
+  // If child has no explicit mother assigned, but father has exactly ONE wife,
+  // then the child's mother is unambiguously that single wife!
+  if (!motherVal && father && Array.isArray(father.wives) && father.wives.length === 1) {
+    motherVal = father.wives[0].id
+  }
+
+  if (!motherVal) return ''
 
   if (father) {
     const wife = findWifeByMotherKey(father, motherVal)
     if (wife) return wifeDisplayName(wife, root)
+  }
+
+  // If motherVal matches a person ID in the tree directly
+  if (typeof motherVal === 'string' && root) {
+    const trimmed = motherVal.trim()
+    const p = findPerson(root, trimmed)
+    if (p) return p.name
   }
 
   if (typeof motherVal === 'object' && motherVal !== null) {
@@ -723,6 +825,7 @@ export function buildUnifiedTree(
   mainRoot: Person,
   mainTreeName: string,
   connectedBranches: ConnectedBranchInput[],
+  commonFatherName?: string,
 ): UnifiedTreeResult {
   if (!connectedBranches || connectedBranches.length === 0) {
     return {
@@ -750,6 +853,7 @@ export function buildUnifiedTree(
       },
       wives: person.wives.map((w) => ({ ...w })),
       children: person.children.map((child) => cloneAndTag(child, prefix, meta)),
+      linkedSpouse: person.linkedSpouse ? cloneAndTag(person.linkedSpouse, prefix, meta) : undefined,
     }
   }
 
@@ -817,8 +921,29 @@ export function buildUnifiedTree(
         // Direct attachment: attach her children directly to her node (avoids repeating daughter -> daughter)
         targetNode.children = [...targetNode.children, ...clonedRoot.children]
       } else {
-        // Direct attachment: daughter node now connects directly to her branch tree
-        targetNode.children = [...targetNode.children, clonedRoot]
+        // The linked root is the husband/father (e.g. حبيب الله)!
+        // Link him as the husband (linkedSpouse) of the daughter (آمنة)
+        targetNode.linkedSpouse = clonedRoot
+
+        // His children are their children descending from this marriage
+        targetNode.children = [...targetNode.children, ...clonedRoot.children]
+
+        // Tag mother on each child
+        clonedRoot.children.forEach((child) => {
+          if (!child.mother) {
+            child.mother = targetNode.name
+          }
+        })
+
+        // Ensure wife relationship is recorded on the husband
+        if (!clonedRoot.wives.some((w) => w.type === 'tree' && w.personId === targetNode.id)) {
+          clonedRoot.wives.push({
+            id: `tw_${targetNode.id}`,
+            type: 'tree',
+            personId: targetNode.id,
+            lineageLabel: targetNode.name,
+          })
+        }
       }
     } else {
       // Fallback: attach under clonedMain root
@@ -843,10 +968,12 @@ export function buildUnifiedTree(
   // If there are brother branches, wrap together in a common ancestor root node
   if (brotherBranches.length > 0) {
     const brotherRoots = brotherBranches.map((b) => b.clonedRoot)
-    const commonFatherTitle =
+    const trimmedCommonName = commonFatherName?.trim() || ''
+    const commonFatherTitle = trimmedCommonName || (
       mainRoot.name.startsWith('شجرة')
         ? `الأصل الجامع (${mainRoot.name})`
         : `الأصل المشترك (جامع آل ${mainRoot.name} وإخوته)`
+    )
 
     const containerRoot: Person = {
       id: `__COMMON_ROOT__`,
@@ -857,9 +984,10 @@ export function buildUnifiedTree(
       mother: null,
       branchMeta: {
         treeId: mainTreeId,
-        treeName: 'الأصل الجامع',
+        treeName: trimmedCommonName || 'الأصل المشترك',
         type: 'main',
         isVirtualContainer: true,
+        personName: trimmedCommonName || undefined,
       },
     }
 
@@ -877,5 +1005,129 @@ export function buildUnifiedTree(
     connectedTreeIds: validConnectedIds,
     isUnified: daughterBranches.length > 0 || otherBranches.length > 0,
   }
+}
+
+export interface FemaleRelationInfo {
+  husbands: Person[]
+  children: Person[]
+  sons: Person[]
+  daughters: Person[]
+}
+
+/**
+ * Computes all husbands and children (sons & daughters) for every female in the tree in a single pass.
+ */
+export function getAllFemalesRelations(root: Person): Map<string, FemaleRelationInfo> {
+  const result = new Map<string, {
+    husbands: Map<string, Person>
+    children: Map<string, Person>
+  }>()
+
+  const femaleByName = new Map<string, Person[]>()
+  const femaleById = new Map<string, Person>()
+
+  const normSimple = (s: string) =>
+    s
+      .replace(/[\u0640\u064B-\u065F\u0670]/g, '')
+      .replace(/[أإآٱ]/g, 'ا')
+      .replace(/ة/g, 'ه')
+      .replace(/[ىي]/g, 'ي')
+      .trim()
+      .toLowerCase()
+
+  function registerFemale(female: Person) {
+    femaleById.set(female.id, female)
+    const norm = normSimple(female.name)
+    const list = femaleByName.get(norm) || []
+    list.push(female)
+    femaleByName.set(norm, list)
+    if (!result.has(female.id)) {
+      result.set(female.id, {
+        husbands: new Map(),
+        children: new Map(),
+      })
+    }
+  }
+
+  // Pass 1: Collect all females & direct linked spouses/children
+  function collect(node: Person) {
+    if (node.gender === 'F') {
+      registerFemale(node)
+      if (node.linkedSpouse) {
+        const entry = result.get(node.id)!
+        entry.husbands.set(node.linkedSpouse.id, node.linkedSpouse)
+      }
+      if (node.children) {
+        const entry = result.get(node.id)!
+        node.children.forEach((c) => entry.children.set(c.id, c))
+      }
+    }
+    if (node.children) {
+      node.children.forEach(collect)
+    }
+  }
+  collect(root)
+
+  // Pass 2: Connect male wives and their children to the corresponding females
+  function connect(node: Person) {
+    if (node.gender === 'M' && node.wives && node.wives.length > 0) {
+      for (const w of node.wives) {
+        let matchingFemales: Person[] = []
+        if (w.type === 'tree' && w.personId && femaleById.has(w.personId)) {
+          matchingFemales = [femaleById.get(w.personId)!]
+        } else if (w.type === 'tree' && w.personName) {
+          matchingFemales = femaleByName.get(normSimple(w.personName)) || []
+        } else if (w.type === 'external' && w.name) {
+          matchingFemales = femaleByName.get(normSimple(w.name)) || []
+        }
+
+        for (const f of matchingFemales) {
+          const entry = result.get(f.id)
+          if (entry) {
+            entry.husbands.set(node.id, node)
+
+            // Map children of this male to this female
+            if (node.children) {
+              for (const child of node.children) {
+                const motherKey = child.mother ? String(child.mother).trim() : ''
+                const motherNorm = normSimple(motherKey)
+                const fNorm = normSimple(f.name)
+
+                if (
+                  motherKey === w.id ||
+                  motherKey === f.id ||
+                  motherNorm === fNorm ||
+                  (node.wives.length === 1 && !motherKey)
+                ) {
+                  entry.children.set(child.id, child)
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+
+    if (node.children) {
+      node.children.forEach(connect)
+    }
+  }
+  connect(root)
+
+  const finalMap = new Map<string, FemaleRelationInfo>()
+  for (const [id, data] of result.entries()) {
+    const husbands = Array.from(data.husbands.values())
+    const children = Array.from(data.children.values())
+    const sons = children.filter((c) => c.gender === 'M')
+    const daughters = children.filter((c) => c.gender === 'F')
+    finalMap.set(id, { husbands, children, sons, daughters })
+  }
+
+  return finalMap
+}
+
+export function getFemaleSpousesAndChildren(root: Person, female: Person): FemaleRelationInfo {
+  const map = getAllFemalesRelations(root)
+  return map.get(female.id) || { husbands: [], children: [], sons: [], daughters: [] }
 }
 

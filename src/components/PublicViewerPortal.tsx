@@ -1,15 +1,19 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react'
-import { fetchDeviceTrees, fetchTreeState } from '../db'
-import type { Person, TreeMeta, TreeState, Wife } from '../types'
+import { fetchDeviceTrees, fetchTreeState, saveTreeState } from '../db'
+import type { ExternalWife, Person, TreeMeta, TreeState, Wife } from '../types'
 import {
   countPeople,
+  findParent,
   findPath,
   findPerson,
   findWifeByMotherKey,
   motherDisplayLabel,
+  nextFemaleId,
+  nextMaleId,
   resolveWife,
   wifeShortLabel,
 } from '../treeUtils'
+import { EditorCodeModal, isEditorUnlocked } from './EditorCodeModal'
 import './PublicViewerPortal.css'
 import './ViewerMobileApp.css'
 
@@ -314,7 +318,13 @@ function collectFamilyEntries(root: Person): FamilyEntry[] {
 // Main Public Viewer Portal Component
 // =============================================================================
 
-export function PublicViewerPortal({ initialTreeId }: { initialTreeId?: string | null }) {
+export function PublicViewerPortal({
+  initialTreeId,
+  onGoHome,
+}: {
+  initialTreeId?: string | null
+  onGoHome?: () => void
+}) {
   const [selectedTreeId, setSelectedTreeId] = useState<string | null>(() => {
     const params = new URLSearchParams(window.location.search)
     return initialTreeId || params.get('t') || params.get('tree') || null
@@ -326,6 +336,19 @@ export function PublicViewerPortal({ initialTreeId }: { initialTreeId?: string |
   const [selectedPerson, setSelectedPerson] = useState<Person | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [toastMsg, setToastMsg] = useState<string | null>(null)
+
+  const [isEditMode, setIsEditMode] = useState<boolean>(() => {
+    const params = new URLSearchParams(window.location.search)
+    return params.get('view') === 'editor' && isEditorUnlocked()
+  })
+  const [isCodeModalOpen, setIsCodeModalOpen] = useState(false)
+
+  // Sync when initialTreeId changes from prop
+  useEffect(() => {
+    if (initialTreeId !== undefined) {
+      setSelectedTreeId(initialTreeId)
+    }
+  }, [initialTreeId])
 
   // Listen to popstate
   useEffect(() => {
@@ -377,6 +400,10 @@ export function PublicViewerPortal({ initialTreeId }: { initialTreeId?: string |
   }
 
   function handleBackToCatalog() {
+    if (onGoHome) {
+      onGoHome()
+      return
+    }
     const url = new URL(window.location.href)
     url.searchParams.set('view', 'viewer')
     url.searchParams.delete('t')
@@ -402,7 +429,143 @@ export function PublicViewerPortal({ initialTreeId }: { initialTreeId?: string |
     showToast('تم نسخ الرابط العام بنجاح!')
   }
 
-  // If no tree is selected, show Public Catalog Landing Page
+  function handleToggleEdit() {
+    if (isEditMode) {
+      setIsEditMode(false)
+      showToast('🔒 تم إنهاء وضع التعديل والعودة للقراءة')
+    } else {
+      if (isEditorUnlocked()) {
+        setIsEditMode(true)
+        showToast('🔓 وضع التعديل نشط — انقر على أي شخص لتعديله')
+      } else {
+        setIsCodeModalOpen(true)
+      }
+    }
+  }
+
+  async function handleRenamePerson(personId: string, newName: string) {
+    if (!treeState?.root || !newName.trim()) return
+    const root = JSON.parse(JSON.stringify(treeState.root)) as Person
+    const target = findPerson(root, personId)
+    if (!target) return
+    target.name = newName.trim()
+    const newState = { ...treeState, root }
+    setTreeState(newState)
+    setSelectedPerson(target)
+    if (selectedTreeId) {
+      await saveTreeState(selectedTreeId, newState)
+    }
+    showToast(`✓ تم تغيير الاسم إلى «${newName.trim()}»`)
+  }
+
+  async function handleAddChildren(parentId: string, sonNames: string[], daughterNames: string[]) {
+    if (!treeState?.root) return
+    const root = JSON.parse(JSON.stringify(treeState.root)) as Person
+    const parent = findPerson(root, parentId)
+    if (!parent) return
+
+    let mCount = treeState.maleCounter || 1
+    let fCount = treeState.femaleCounter || 0
+
+    sonNames.forEach((name) => {
+      const trimmed = name.trim()
+      if (!trimmed) return
+      parent.children.push({
+        id: nextMaleId(mCount),
+        name: trimmed,
+        gender: 'M',
+        children: [],
+        wives: [],
+      })
+      mCount++
+    })
+
+    daughterNames.forEach((name) => {
+      const trimmed = name.trim()
+      if (!trimmed) return
+      parent.children.push({
+        id: nextFemaleId(fCount + 1),
+        name: trimmed,
+        gender: 'F',
+        children: [],
+        wives: [],
+      })
+      fCount++
+    })
+
+    const newState: TreeState = {
+      ...treeState,
+      root,
+      maleCounter: mCount,
+      femaleCounter: fCount,
+    }
+    setTreeState(newState)
+    setSelectedPerson(parent)
+    if (selectedTreeId) {
+      await saveTreeState(selectedTreeId, newState)
+    }
+    const total = sonNames.length + daughterNames.length
+    showToast(`✓ تم إضافة ${total} من الذرية بنجاح`)
+  }
+
+  async function handleAddWife(personId: string, wifeName: string, family?: string) {
+    if (!treeState?.root || !wifeName.trim()) return
+    const root = JSON.parse(JSON.stringify(treeState.root)) as Person
+    const person = findPerson(root, personId)
+    if (!person) return
+
+    const newWife: ExternalWife = {
+      id: `ext-wife-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      type: 'external',
+      name: wifeName.trim(),
+      family: family?.trim() || '',
+      tribute: '',
+    }
+    person.wives = person.wives || []
+    person.wives.push(newWife)
+
+    const newState = { ...treeState, root }
+    setTreeState(newState)
+    setSelectedPerson(person)
+    if (selectedTreeId) {
+      await saveTreeState(selectedTreeId, newState)
+    }
+    showToast(`✓ تم إضافة الزوجة «${wifeName.trim()}»`)
+  }
+
+  async function handleRemoveWife(personId: string, wifeIndex: number) {
+    if (!treeState?.root) return
+    const root = JSON.parse(JSON.stringify(treeState.root)) as Person
+    const person = findPerson(root, personId)
+    if (!person || !person.wives) return
+
+    person.wives.splice(wifeIndex, 1)
+    const newState = { ...treeState, root }
+    setTreeState(newState)
+    setSelectedPerson(person)
+    if (selectedTreeId) {
+      await saveTreeState(selectedTreeId, newState)
+    }
+    showToast('✓ تم حذف الزوجة')
+  }
+
+  async function handleDeletePerson(personId: string) {
+    if (!treeState?.root || personId === treeState.root.id) return
+    const root = JSON.parse(JSON.stringify(treeState.root)) as Person
+    const parent = findParent(root, personId)
+    if (!parent) return
+
+    parent.children = parent.children.filter((c) => c.id !== personId)
+    const newState = { ...treeState, root }
+    setTreeState(newState)
+    setSelectedPerson(parent)
+    if (selectedTreeId) {
+      await saveTreeState(selectedTreeId, newState)
+    }
+    showToast('✓ تم حذف الشخص')
+  }
+
+  // If no tree is selected, show Public Catalog
   if (!selectedTreeId) {
     return <PublicTreesCatalog onSelectTree={handleSelectTree} />
   }
@@ -445,9 +608,9 @@ export function PublicViewerPortal({ initialTreeId }: { initialTreeId?: string |
             type="button"
             className="pv-back-to-catalog-btn"
             onClick={handleBackToCatalog}
-            title="الرجوع إلى دليل جميع المشجرات العائلية"
+            title="الرجوع إلى قائمة المشجرات الرئيسية"
           >
-            ← كل المشجرات
+            ← الرئيسية
           </button>
 
           <div className="pv-header-title-box">
@@ -487,6 +650,15 @@ export function PublicViewerPortal({ initialTreeId }: { initialTreeId?: string |
         <div className="pv-header-actions">
           <button
             type="button"
+            className={`pv-btn-edit ${isEditMode ? 'active' : ''}`}
+            onClick={handleToggleEdit}
+            title={isEditMode ? 'إنهاء التعديل والعودة للقراءة' : 'تعديل الشجرة (يتطلب رمز المرور)'}
+          >
+            <span className="pv-edit-btn-icon">{isEditMode ? '✓' : '✏️'}</span>
+            <span>{isEditMode ? 'تم التعديل' : 'تعديل'}</span>
+          </button>
+          <button
+            type="button"
             className="pv-btn-share"
             onClick={() => handleShare(selectedPerson?.id)}
             title="مشاركة رابط المشجر للزوار"
@@ -502,6 +674,7 @@ export function PublicViewerPortal({ initialTreeId }: { initialTreeId?: string |
           root={root}
           selectedPerson={selectedPerson}
           onSelectPerson={(p) => setSelectedPerson(p)}
+          isEditMode={isEditMode}
         />
       )}
 
@@ -535,11 +708,28 @@ export function PublicViewerPortal({ initialTreeId }: { initialTreeId?: string |
           person={selectedPerson}
           root={root}
           mothersMap={mothersMap}
+          isEditMode={isEditMode}
           onClose={() => setSelectedPerson(null)}
           onSelectPerson={(p) => setSelectedPerson(p)}
           onShare={() => handleShare(selectedPerson.id)}
+          onRenamePerson={handleRenamePerson}
+          onAddChildren={handleAddChildren}
+          onAddWife={handleAddWife}
+          onRemoveWife={handleRemoveWife}
+          onDeletePerson={handleDeletePerson}
         />
       )}
+
+      {/* Code Modal for Unlocking Editor */}
+      <EditorCodeModal
+        isOpen={isCodeModalOpen}
+        onClose={() => setIsCodeModalOpen(false)}
+        onSuccess={() => {
+          setIsCodeModalOpen(false)
+          setIsEditMode(true)
+          showToast('🔓 تم تأكيد الرمز — وضع التعديل نشط')
+        }}
+      />
 
       {/* Toast */}
       {toastMsg && <div className="v-toast">{toastMsg}</div>}
@@ -1326,10 +1516,12 @@ function InteractiveTreeCanvas({
   root,
   selectedPerson,
   onSelectPerson,
+  isEditMode,
 }: {
   root: Person
   selectedPerson: Person | null
   onSelectPerson: (p: Person) => void
+  isEditMode?: boolean
 }) {
   const containerRef = useRef<HTMLDivElement>(null)
   const [zoom, setZoom] = useState(0.85)
@@ -1480,6 +1672,13 @@ function InteractiveTreeCanvas({
       onPointerCancel={handlePointerUp}
       style={{ touchAction: 'none' }}
     >
+      {isEditMode && (
+        <div className="v-edit-mode-banner">
+          <span className="v-edit-mode-icon">✏️</span>
+          <span>وضع التعديل نشط — انقر على أي شخص لتعديل الاسم أو إضافة أبناء وزوجات</span>
+        </div>
+      )}
+
       <div className="v-floating-controls">
         <button
           type="button"
@@ -1540,7 +1739,7 @@ function InteractiveTreeCanvas({
               key={node.person.id}
               className={`v-tree-card ${isMale ? 'card-m' : 'card-f'} ${
                 isSelected ? 'is-selected' : ''
-              }`}
+              } ${isEditMode ? 'is-edit-mode' : ''}`}
               style={{
                 position: 'absolute',
                 left: `${node.x - CARD_WIDTH / 2}px`,
@@ -1552,6 +1751,7 @@ function InteractiveTreeCanvas({
             >
               <div className="v-card-header">
                 <span className={`v-dot ${isMale ? 'dot-m' : 'dot-f'}`} />
+                {isEditMode && <span className="v-card-edit-badge" title="تعديل هذا الشخص">✏️</span>}
                 {node.hasChildren && (
                   <button
                     type="button"
@@ -1589,20 +1789,88 @@ function PersonBottomSheet({
   person,
   root,
   mothersMap,
+  isEditMode,
   onClose,
   onSelectPerson,
   onShare,
+  onRenamePerson,
+  onAddChildren,
+  onAddWife,
+  onRemoveWife,
+  onDeletePerson,
 }: {
   person: Person
   root: Person
   mothersMap: Map<string, MaternalInfo[]>
+  isEditMode?: boolean
   onClose: () => void
   onSelectPerson: (p: Person) => void
   onShare: () => void
+  onRenamePerson?: (personId: string, newName: string) => Promise<void>
+  onAddChildren?: (parentId: string, sonNames: string[], daughterNames: string[]) => Promise<void>
+  onAddWife?: (personId: string, wifeName: string, family?: string) => Promise<void>
+  onRemoveWife?: (personId: string, wifeIndex: number) => Promise<void>
+  onDeletePerson?: (personId: string) => Promise<void>
 }) {
   const lineage = getLineageChain(root, person.id)
   const isMale = person.gender === 'M'
   const maternal = mothersMap.get(person.id)
+
+  const [isEditingName, setIsEditingName] = useState(false)
+  const [editNameValue, setEditNameValue] = useState(person.name)
+  const [isAddingChildren, setIsAddingChildren] = useState(false)
+  const [sonInput, setSonInput] = useState('')
+  const [daughterInput, setDaughterInput] = useState('')
+  const [isAddingWife, setIsAddingWife] = useState(false)
+  const [wifeNameInput, setWifeNameInput] = useState('')
+  const [wifeFamilyInput, setWifeFamilyInput] = useState('')
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+
+  useEffect(() => {
+    setIsEditingName(false)
+    setEditNameValue(person.name)
+    setIsAddingChildren(false)
+    setSonInput('')
+    setDaughterInput('')
+    setIsAddingWife(false)
+    setWifeNameInput('')
+    setWifeFamilyInput('')
+    setShowDeleteConfirm(false)
+  }, [person.id, person.name])
+
+  async function handleSaveName(e: React.FormEvent) {
+    e.preventDefault()
+    if (!editNameValue.trim() || !onRenamePerson) return
+    await onRenamePerson(person.id, editNameValue.trim())
+    setIsEditingName(false)
+  }
+
+  async function handleSaveChildren(e: React.FormEvent) {
+    e.preventDefault()
+    if (!onAddChildren) return
+    const sons = sonInput
+      .split(/[،,\n]+/)
+      .map((s) => s.trim())
+      .filter(Boolean)
+    const daughters = daughterInput
+      .split(/[،,\n]+/)
+      .map((s) => s.trim())
+      .filter(Boolean)
+    if (sons.length === 0 && daughters.length === 0) return
+    await onAddChildren(person.id, sons, daughters)
+    setSonInput('')
+    setDaughterInput('')
+    setIsAddingChildren(false)
+  }
+
+  async function handleSaveWife(e: React.FormEvent) {
+    e.preventDefault()
+    if (!wifeNameInput.trim() || !onAddWife) return
+    await onAddWife(person.id, wifeNameInput.trim(), wifeFamilyInput.trim())
+    setWifeNameInput('')
+    setWifeFamilyInput('')
+    setIsAddingWife(false)
+  }
 
   return (
     <div className="v-sheet-backdrop" onClick={onClose} dir="rtl">
@@ -1614,7 +1882,44 @@ function PersonBottomSheet({
             <span className={`v-gender-tag ${isMale ? 'tag-m' : 'tag-f'}`}>
               {isMale ? 'ذكر' : 'أنثى'}
             </span>
-            <h2 className="v-sheet-name">{person.name}</h2>
+            {isEditMode && isEditingName ? (
+              <form onSubmit={handleSaveName} className="v-sheet-rename-form">
+                <input
+                  type="text"
+                  className="v-sheet-rename-input"
+                  value={editNameValue}
+                  onChange={(e) => setEditNameValue(e.target.value)}
+                  autoFocus
+                />
+                <button type="submit" className="v-sheet-save-btn">
+                  حفظ
+                </button>
+                <button
+                  type="button"
+                  className="v-sheet-cancel-btn"
+                  onClick={() => {
+                    setEditNameValue(person.name)
+                    setIsEditingName(false)
+                  }}
+                >
+                  إلغاء
+                </button>
+              </form>
+            ) : (
+              <div className="v-sheet-name-row">
+                <h2 className="v-sheet-name">{person.name}</h2>
+                {isEditMode && onRenamePerson && (
+                  <button
+                    type="button"
+                    className="v-sheet-inline-edit-btn"
+                    onClick={() => setIsEditingName(true)}
+                    title="تعديل الاسم"
+                  >
+                    ✏️ تعديل الاسم
+                  </button>
+                )}
+              </div>
+            )}
           </div>
           <button type="button" className="v-sheet-close" onClick={onClose}>
             ✕
@@ -1643,40 +1948,155 @@ function PersonBottomSheet({
           </div>
         )}
 
-        {/* Wives */}
-        {person.wives && person.wives.length > 0 && (
+        {/* Wives (for Males) */}
+        {isMale && (
           <div className="v-sheet-section">
-            <h3 className="v-sheet-label">الزوجات ({person.wives.length}):</h3>
-            <div className="v-sheet-chips">
-              {person.wives.map((wife, i) => {
-                const linkedFemale = resolveWife(wife, root)
-                if (linkedFemale) {
-                  return (
-                    <button
-                      key={i}
-                      type="button"
-                      className="v-chip v-chip-link"
-                      onClick={() => onSelectPerson(linkedFemale)}
-                    >
-                      🔗 {linkedFemale.name} (من المشجر)
-                    </button>
-                  )
-                }
-                return (
-                  <span key={i} className="v-chip">
-                    {wifeShortLabel(wife, root)}
-                  </span>
-                )
-              })}
+            <div className="v-section-header-row">
+              <h3 className="v-sheet-label">الزوجات ({person.wives ? person.wives.length : 0}):</h3>
+              {isEditMode && onAddWife && !isAddingWife && (
+                <button
+                  type="button"
+                  className="v-sheet-action-link-btn"
+                  onClick={() => setIsAddingWife(true)}
+                >
+                  ＋ إضافة زوجة
+                </button>
+              )}
             </div>
+
+            {person.wives && person.wives.length > 0 && (
+              <div className="v-sheet-chips">
+                {person.wives.map((wife, i) => {
+                  const linkedFemale = resolveWife(wife, root)
+                  if (linkedFemale) {
+                    return (
+                      <div key={i} className="v-chip-wrapper">
+                        <button
+                          type="button"
+                          className="v-chip v-chip-link"
+                          onClick={() => onSelectPerson(linkedFemale)}
+                        >
+                          🔗 {linkedFemale.name} (من المشجر)
+                        </button>
+                        {isEditMode && onRemoveWife && (
+                          <button
+                            type="button"
+                            className="v-chip-del-btn"
+                            onClick={() => onRemoveWife(person.id, i)}
+                            title="حذف الزوجة"
+                          >
+                            ✕
+                          </button>
+                        )}
+                      </div>
+                    )
+                  }
+                  return (
+                    <div key={i} className="v-chip-wrapper">
+                      <span className="v-chip">{wifeShortLabel(wife, root)}</span>
+                      {isEditMode && onRemoveWife && (
+                        <button
+                          type="button"
+                          className="v-chip-del-btn"
+                          onClick={() => onRemoveWife(person.id, i)}
+                          title="حذف الزوجة"
+                        >
+                          ✕
+                        </button>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+
+            {isEditMode && isAddingWife && (
+              <form onSubmit={handleSaveWife} className="v-sheet-add-form">
+                <input
+                  type="text"
+                  placeholder="اسم الزوجة (مثال: فاطمة)"
+                  value={wifeNameInput}
+                  onChange={(e) => setWifeNameInput(e.target.value)}
+                  className="v-sheet-form-input"
+                  autoFocus
+                />
+                <input
+                  type="text"
+                  placeholder="العائلة أو القبيلة (اختياري)"
+                  value={wifeFamilyInput}
+                  onChange={(e) => setWifeFamilyInput(e.target.value)}
+                  className="v-sheet-form-input"
+                />
+                <div className="v-sheet-form-btns">
+                  <button type="submit" className="v-sheet-save-btn">
+                    إضافة
+                  </button>
+                  <button
+                    type="button"
+                    className="v-sheet-cancel-btn"
+                    onClick={() => setIsAddingWife(false)}
+                  >
+                    إلغاء
+                  </button>
+                </div>
+              </form>
+            )}
           </div>
         )}
 
         {/* Children */}
         <div className="v-sheet-section">
-          <h3 className="v-sheet-label">
-            الأبناء والبنات ({person.children.length}):
-          </h3>
+          <div className="v-section-header-row">
+            <h3 className="v-sheet-label">
+              الأبناء والبنات ({person.children.length}):
+            </h3>
+            {isEditMode && onAddChildren && !isAddingChildren && (
+              <button
+                type="button"
+                className="v-sheet-action-link-btn"
+                onClick={() => setIsAddingChildren(true)}
+              >
+                ＋ إضافة أبناء أو بنات
+              </button>
+            )}
+          </div>
+
+          {isEditMode && isAddingChildren && (
+            <form onSubmit={handleSaveChildren} className="v-sheet-add-form">
+              <label className="v-form-field-label">أسماء الأبناء (افصل بينهم بفاصلة):</label>
+              <input
+                type="text"
+                placeholder="مثال: محمد، عبد الله، خالد"
+                value={sonInput}
+                onChange={(e) => setSonInput(e.target.value)}
+                className="v-sheet-form-input"
+                autoFocus
+              />
+              <label className="v-form-field-label" style={{ marginTop: '8px' }}>
+                أسماء البنات (افصل بينهن بفاصلة):
+              </label>
+              <input
+                type="text"
+                placeholder="مثال: مريم، فاطمة، عائشة"
+                value={daughterInput}
+                onChange={(e) => setDaughterInput(e.target.value)}
+                className="v-sheet-form-input"
+              />
+              <div className="v-sheet-form-btns">
+                <button type="submit" className="v-sheet-save-btn">
+                  إضافة الذرية
+                </button>
+                <button
+                  type="button"
+                  className="v-sheet-cancel-btn"
+                  onClick={() => setIsAddingChildren(false)}
+                >
+                  إلغاء
+                </button>
+              </div>
+            </form>
+          )}
+
           {person.children.length === 0 ? (
             <p className="v-empty-sub">لا توجد ذرية مسجلة</p>
           ) : (
@@ -1703,6 +2123,46 @@ function PersonBottomSheet({
             </div>
           )}
         </div>
+
+        {/* Edit Actions: Delete Person */}
+        {isEditMode && onDeletePerson && person.id !== root.id && (
+          <div className="v-sheet-section v-sheet-danger-zone">
+            {showDeleteConfirm ? (
+              <div className="v-delete-confirm-box">
+                <p className="v-delete-confirm-text">
+                  ⚠️ هل أنت متأكد من حذف <strong>«{person.name}»</strong> وكافة ذريته نهائياً؟
+                </p>
+                <div className="v-sheet-form-btns">
+                  <button
+                    type="button"
+                    className="v-sheet-danger-btn"
+                    onClick={async () => {
+                      await onDeletePerson(person.id)
+                      onClose()
+                    }}
+                  >
+                    نعم، احذف نهائياً
+                  </button>
+                  <button
+                    type="button"
+                    className="v-sheet-cancel-btn"
+                    onClick={() => setShowDeleteConfirm(false)}
+                  >
+                    إلغاء
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button
+                type="button"
+                className="v-sheet-delete-trigger-btn"
+                onClick={() => setShowDeleteConfirm(true)}
+              >
+                🗑️ حذف هذا الشخص من الشجرة
+              </button>
+            )}
+          </div>
+        )}
 
         {/* Share Button */}
         <button type="button" className="v-share-btn" onClick={onShare}>

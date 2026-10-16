@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import type { Person, TreeState } from '../types'
-import { resolveWife, wifeShortLabel, findPath } from '../treeUtils'
+import { resolveWife, wifeShortLabel, findPath, getAllFemalesRelations } from '../treeUtils'
 import './ViewerMobileApp.css'
 
 // ── Types ───────────────────────────────────────────────────────────────────
@@ -461,6 +461,11 @@ function InteractiveTreeCanvas({
     [root, expandedIds]
   )
 
+  const femalesRelationsMap = useMemo(
+    () => getAllFemalesRelations(root),
+    [root]
+  )
+
   // Auto-fit on initial render
   useEffect(() => {
     if (!containerRef.current) return
@@ -674,6 +679,25 @@ function InteractiveTreeCanvas({
                   ⚭ {node.person.wives.length}
                 </div>
               )}
+
+              {!isMale && (() => {
+                const fInfo = femalesRelationsMap.get(node.person.id)
+                if (!fInfo || (fInfo.husbands.length === 0 && fInfo.sons.length === 0)) return null
+                return (
+                  <div className="v-card-female-relations" style={{ fontSize: '10px', marginTop: '2px', lineHeight: 1.25 }}>
+                    {fInfo.husbands.length > 0 && (
+                      <div className="v-card-husband" style={{ color: '#2563eb', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        ⚭ {fInfo.husbands.map((h) => h.name).join('، ')}
+                      </div>
+                    )}
+                    {fInfo.sons.length > 0 && (
+                      <div className="v-card-sons" style={{ color: 'var(--v-text-dim, #666)', fontSize: '9px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        👦 {fInfo.sons.length === 1 ? fInfo.sons[0].name : `${fInfo.sons.slice(0, 2).map((s) => s.name).join('، ')}${fInfo.sons.length > 2 ? '…' : ''}`}
+                      </div>
+                    )}
+                  </div>
+                )
+              })()}
             </div>
           )
         })}
@@ -700,6 +724,18 @@ function PersonBottomSheet({
   const lineage = getLineageChain(root, person.id)
   const isMale = person.gender === 'M'
 
+  const femaleInfo = useMemo(() => {
+    if (isMale) return null
+    return getAllFemalesRelations(root).get(person.id) || null
+  }, [isMale, root, person.id])
+
+  const displayedChildren = useMemo(() => {
+    if (!isMale && femaleInfo) {
+      return femaleInfo.children
+    }
+    return person.children
+  }, [isMale, femaleInfo, person.children])
+
   return (
     <div className="v-sheet-backdrop" onClick={onClose} dir="rtl">
       <div className="v-sheet" onClick={(e) => e.stopPropagation()}>
@@ -725,8 +761,8 @@ function PersonBottomSheet({
           </div>
         )}
 
-        {/* Wives */}
-        {person.wives && person.wives.length > 0 && (
+        {/* Wives (for Male) */}
+        {isMale && person.wives && person.wives.length > 0 && (
           <div className="v-sheet-section">
             <h3 className="v-sheet-label">الزوجات ({person.wives.length}):</h3>
             <div className="v-sheet-chips">
@@ -754,16 +790,39 @@ function PersonBottomSheet({
           </div>
         )}
 
+        {/* Husband (for Female) */}
+        {!isMale && femaleInfo && (
+          <div className="v-sheet-section">
+            <h3 className="v-sheet-label">الزوج ({femaleInfo.husbands.length}):</h3>
+            {femaleInfo.husbands.length === 0 ? (
+              <p className="v-empty-sub">لم يُسجل زوج</p>
+            ) : (
+              <div className="v-sheet-chips">
+                {femaleInfo.husbands.map((h) => (
+                  <button
+                    key={h.id}
+                    type="button"
+                    className="v-chip v-chip-link"
+                    onClick={() => onSelectPerson(h)}
+                  >
+                    ⚭ {h.name} ↗
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Children */}
         <div className="v-sheet-section">
           <h3 className="v-sheet-label">
-            الأبناء والبنات ({person.children.length}):
+            الأبناء والبنات ({displayedChildren.length}):
           </h3>
-          {person.children.length === 0 ? (
+          {displayedChildren.length === 0 ? (
             <p className="v-empty-sub">لا توجد ذرية مسجلة</p>
           ) : (
             <div className="v-sheet-children">
-              {person.children.map((child) => {
+              {displayedChildren.map((child) => {
                 const childIsMale = child.gender === 'M'
                 return (
                   <button

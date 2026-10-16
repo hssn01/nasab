@@ -5,7 +5,14 @@ import {
   getSession,
   saveSessionLocally,
 } from './localDb'
-import type { TreeLink, TreeMeta, TreeState } from './types'
+import { treeToRelational, relationalToTree } from './relationalAdapter'
+import type {
+  RelationalPerson,
+  RelationalUnion,
+  TreeLink,
+  TreeMeta,
+  TreeState,
+} from './types'
 
 // ── Device tree registry (localStorage list of IDs this device knows about) ──
 
@@ -73,6 +80,187 @@ export function setCachedTreeList(trees: TreeMeta[]) {
   }
 }
 
+// ── Helpers: write/read normalized relational rows in Supabase ──
+
+/**
+ * Upsert persons + unions rows for a tree to Supabase (dual-write).
+ * Runs silently — errors are swallowed so the app keeps working.
+ */
+async function upsertRelationalRows(treeId: string, treeName: string, state: TreeState, now: string) {
+  try {
+    const bundle = treeToRelational(treeId, treeName, state, now)
+
+    if (bundle.persons.length > 0) {
+      const personsRows = bundle.persons.map((p) => ({
+        id: p.id,
+        tree_id: treeId,
+        name: p.name,
+        gender: p.gender,
+        father_id: p.fatherId ?? null,
+        mother_id: p.motherId ?? null,
+        union_id: p.unionId ?? null,
+        birth_order: p.birthOrder,
+        notes: p.notes ?? null,
+        branch_meta: p.branchMeta ?? null,
+        updated_at: now,
+      }))
+      const { error: pErr } = await supabase
+        .from('persons')
+        .upsert(personsRows, { onConflict: 'tree_id,id', ignoreDuplicates: false })
+      if (pErr) console.warn('[nasab] persons upsert:', pErr.message)
+    }
+
+    if (bundle.unions.length > 0) {
+      const unionsRows = bundle.unions.map((u) => ({
+        id: u.id,
+        tree_id: treeId,
+        husband_id: u.husbandId,
+        type: u.type,
+        wife_person_id: u.wifePersonId ?? null,
+        wife_tree_id: u.wifeTreeId ?? null,
+        wife_tree_name: u.wifeTreeName ?? null,
+        wife_person_name: u.wifePersonName ?? null,
+        wife_lineage_label: u.wifeLineageLabel ?? null,
+        external_name: u.externalName ?? null,
+        external_family: u.externalFamily ?? null,
+        external_tribute: u.externalTribute ?? null,
+        marriage_order: u.marriageOrder,
+        notes: u.notes ?? null,
+        updated_at: now,
+      }))
+      const { error: uErr } = await supabase
+        .from('unions')
+        .upsert(unionsRows, { onConflict: 'tree_id,id', ignoreDuplicates: false })
+      if (uErr) console.warn('[nasab] unions upsert:', uErr.message)
+    }
+  } catch (err) {
+    console.warn('[nasab] upsertRelationalRows failed silently:', err)
+  }
+}
+
+/**
+ * Delete all persons + unions for a tree from Supabase relational tables.
+ */
+async function deleteRelationalRows(treeId: string) {
+  try {
+    await Promise.all([
+      supabase.from('persons').delete().eq('tree_id', treeId),
+      supabase.from('unions').delete().eq('tree_id', treeId),
+    ])
+  } catch (err) {
+    console.warn('[nasab] deleteRelationalRows failed silently:', err)
+  }
+}
+
+interface SupabaseTreeMeta {
+  name: string
+  phase?: string
+  root_person_id?: string | null
+  male_counter?: number
+  female_counter?: number
+  males_queue?: string[]
+  current_male_index?: number
+  current_person_id?: string | null
+  linked_from?: any
+}
+
+/**
+ * Fetch relational persons + unions from Supabase and reconstruct TreeState.
+ * Returns null if no relational rows exist yet (caller falls back to state blob).
+ */
+async function fetchRelationalState(treeId: string, meta: SupabaseTreeMeta): Promise<TreeState | null> {
+  try {
+    // Paginate persons in chunks of 1000 to overcome Supabase default limit
+    let personsRaw: any[] = []
+    let fromP = 0
+    const step = 1000
+    while (true) {
+      const { data, error } = await supabase
+        .from('persons')
+        .select('*')
+        .eq('tree_id', treeId)
+        .range(fromP, fromP + step - 1)
+      if (error || !data || data.length === 0) break
+      personsRaw.push(...data)
+      if (data.length < step) break
+      fromP += step
+    }
+
+    if (personsRaw.length === 0) return null
+
+    // Fetch all unions
+    let unionsRaw: any[] = []
+    let fromU = 0
+    while (true) {
+      const { data, error } = await supabase
+        .from('unions')
+        .select('*')
+        .eq('tree_id', treeId)
+        .range(fromU, fromU + step - 1)
+      if (error || !data || data.length === 0) break
+      unionsRaw.push(...data)
+      if (data.length < step) break
+      fromU += step
+    }
+
+    const persons: RelationalPerson[] = personsRaw.map((p: any) => ({
+      id: p.id,
+      treeId: p.tree_id,
+      name: p.name,
+      gender: p.gender,
+      fatherId: p.father_id ?? null,
+      motherId: p.mother_id ?? null,
+      unionId: p.union_id ?? null,
+      birthOrder: p.birth_order ?? 0,
+      notes: p.notes ?? undefined,
+      branchMeta: p.branch_meta ?? undefined,
+      updated_at: p.updated_at,
+      synced: true,
+    }))
+
+    const unions: RelationalUnion[] = unionsRaw.map((u: any) => ({
+      id: u.id,
+      treeId: u.tree_id,
+      husbandId: u.husband_id,
+      type: u.type,
+      wifePersonId: u.wife_person_id ?? undefined,
+      wifeTreeId: u.wife_tree_id ?? undefined,
+      wifeTreeName: u.wife_tree_name ?? undefined,
+      wifePersonName: u.wife_person_name ?? undefined,
+      wifeLineageLabel: u.wife_lineage_label ?? undefined,
+      externalName: u.external_name ?? undefined,
+      externalFamily: u.external_family ?? undefined,
+      externalTribute: u.external_tribute ?? undefined,
+      marriageOrder: u.marriage_order ?? 0,
+      notes: u.notes ?? undefined,
+      updated_at: u.updated_at,
+      synced: true,
+    }))
+
+    return relationalToTree({
+      tree: {
+        id: treeId,
+        name: meta.name,
+        rootPersonId: meta.root_person_id ?? null,
+        phase: (meta.phase as any) ?? 'complete',
+        currentPersonId: meta.current_person_id ?? null,
+        maleCounter: meta.male_counter ?? 1,
+        femaleCounter: meta.female_counter ?? 0,
+        malesQueue: meta.males_queue ?? [],
+        currentMaleIndex: meta.current_male_index ?? 0,
+        linkedFrom: meta.linked_from ?? undefined,
+        updated_at: new Date().toISOString(),
+        synced: true,
+      },
+      persons,
+      unions,
+    })
+  } catch (err) {
+    console.warn('[nasab] fetchRelationalState failed silently:', err)
+    return null
+  }
+}
+
 // ── Supabase CRUD with Offline Fallback ──
 
 export async function fetchDeviceTrees(): Promise<TreeMeta[]> {
@@ -102,7 +290,7 @@ export async function fetchDeviceTrees(): Promise<TreeMeta[]> {
   try {
     const { data, error } = await supabase
       .from('trees')
-      .select('id, name, updated_at, state')
+      .select('id, name, updated_at, state, root_person_id, linked_from')
       .order('updated_at', { ascending: false })
       .limit(50)
 
@@ -120,7 +308,7 @@ export async function fetchDeviceTrees(): Promise<TreeMeta[]> {
       downloaded: Boolean(localMap.get(t.id)?.downloaded),
       synced: true,
       rootAncestor: t.state?.root?.name || t.name,
-      linkedFrom: t.state?.linkedFrom || t.link || localMap.get(t.id)?.linkedFrom,
+      linkedFrom: t.linked_from || t.state?.linkedFrom || localMap.get(t.id)?.linkedFrom,
     }))
 
     // Merge remote trees with any local-only offline trees
@@ -145,20 +333,72 @@ export async function fetchTreeState(id: string): Promise<TreeState | null> {
   }
 
   try {
-    const { data, error } = await supabase
+    // Try fetching with full relational columns first
+    let data: any = null
+
+    const fullResult = await supabase
       .from('trees')
-      .select('state, name, updated_at')
+      .select('state, name, updated_at, phase, root_person_id, male_counter, female_counter, males_queue, current_male_index, current_person_id, linked_from')
       .eq('id', id)
       .single()
 
-    if (error || !data) {
+    if (fullResult.error?.code === 'PGRST116' || (fullResult.error && !fullResult.data)) {
+      // PostgREST schema cache hasn't refreshed — fall back to blob-only
+      const blobResult = await supabase
+        .from('trees')
+        .select('state, name, updated_at')
+        .eq('id', id)
+        .single()
+      if (!blobResult.error && blobResult.data) data = blobResult.data
+    } else if (!fullResult.error) {
+      data = fullResult.data
+    }
+
+    if (!data) {
       if (cached) return cached
       const local = await getSession(id)
       return local ? local.state : null
     }
 
-    const state = data.state as TreeState
+    let state: TreeState | null = null
+
+    // Always attempt reading normalized persons/unions first (highest fidelity)
+    const relState = await fetchRelationalState(id, {
+      name: data.name,
+      phase: data.phase || 'complete',
+      root_person_id: data.root_person_id,
+      male_counter: data.male_counter,
+      female_counter: data.female_counter,
+      males_queue: data.males_queue,
+      current_male_index: data.current_male_index,
+      current_person_id: data.current_person_id,
+      linked_from: data.linked_from,
+    })
+
+    if (relState && relState.root) {
+      state = relState
+    } else if (data.state && (data.state as TreeState).root) {
+      state = data.state as TreeState
+    } else if (relState) {
+      state = relState
+    } else {
+      state = (data.state as TreeState) || null
+    }
+
+    // Auto-backfill relational rows if blob exists but relational rows are missing
+    if (!relState && data.state && (data.state as TreeState).root) {
+      console.log(`[nasab] Backfilling relational rows for tree ${id}`)
+      upsertRelationalRows(id, data.name, data.state as TreeState, data.updated_at || new Date().toISOString())
+    }
+
+    if (!state) {
+      if (cached) return cached
+      const local = await getSession(id)
+      return local ? local.state : null
+    }
+
     setCachedState(id, state)
+
     // Update local IndexedDB if already downloaded
     const local = await getSession(id)
     if (local?.downloaded) {
@@ -216,9 +456,24 @@ export async function createTree(
   }
 
   try {
+    // Build the tree row with both blob and relational columns
+    const bundle = treeToRelational(localId, name, stateWithLink, now)
+    const treeRow: any = {
+      name,
+      state: stateWithLink,          // dual-write: keep blob for backward compat
+      root_person_id: bundle.tree.rootPersonId ?? null,
+      phase: bundle.tree.phase,
+      current_person_id: bundle.tree.currentPersonId ?? null,
+      male_counter: bundle.tree.maleCounter,
+      female_counter: bundle.tree.femaleCounter,
+      males_queue: bundle.tree.malesQueue,
+      current_male_index: bundle.tree.currentMaleIndex,
+      linked_from: link ?? null,
+    }
+
     const { data, error } = await supabase
       .from('trees')
-      .insert({ name, state: stateWithLink })
+      .insert(treeRow)
       .select('id')
       .single()
 
@@ -227,6 +482,9 @@ export async function createTree(
     }
 
     const realId = data.id as string
+
+    // Write relational persons + unions rows
+    await upsertRelationalRows(realId, name, stateWithLink, now)
 
     // If Supabase created a different UUID, update local caches
     if (realId !== localId) {
@@ -277,6 +535,15 @@ export async function createTree(
 }
 
 export async function saveTreeState(id: string, state: TreeState): Promise<void> {
+  // CRITICAL DATA PROTECTION: Never overwrite an existing tree that already has a root with an empty root
+  if (!state.root) {
+    const cached = getCachedState(id)
+    if (cached?.root) {
+      console.warn(`[nasab] Guard triggered: Refusing to overwrite tree ${id} with empty root. Existing root: ${cached.root.name}`)
+      return
+    }
+  }
+
   const now = new Date().toISOString()
   const name = state.root?.name ? `شجرة ${state.root.name}` : undefined
 
@@ -309,10 +576,32 @@ export async function saveTreeState(id: string, state: TreeState): Promise<void>
   if (!navigator.onLine || !isConfigured) return
 
   try {
-    const payload: any = { state, updated_at: now }
+    const bundle = treeToRelational(id, sessionName, state, now)
+    const payload: any = {
+      state,            // dual-write: keep blob
+      updated_at: now,
+      root_person_id: bundle.tree.rootPersonId ?? null,
+      phase: bundle.tree.phase,
+      current_person_id: bundle.tree.currentPersonId ?? null,
+      male_counter: bundle.tree.maleCounter,
+      female_counter: bundle.tree.femaleCounter,
+      males_queue: bundle.tree.malesQueue,
+      current_male_index: bundle.tree.currentMaleIndex,
+    }
     if (name) payload.name = name
 
     const { error } = await supabase.from('trees').update(payload).eq('id', id)
+
+    // If schema cache hasn't refreshed yet, fall back to blob-only update
+    if (error) {
+      const blobPayload: any = { state, updated_at: now }
+      if (name) blobPayload.name = name
+      await supabase.from('trees').update(blobPayload).eq('id', id)
+    }
+
+    // Write normalized rows in parallel (no await — don't block the save)
+    upsertRelationalRows(id, sessionName, state, now)
+
     if (!error) {
       await saveSessionLocally(
         {
@@ -364,6 +653,9 @@ export async function deleteTree(id: string): Promise<void> {
   if (!navigator.onLine || !isConfigured) return
 
   try {
+    // Delete relational rows first (also handled by ON DELETE CASCADE on DB,
+    // but explicit delete ensures cleanup even if cascade isn't configured yet)
+    await deleteRelationalRows(id)
     await supabase.from('trees').delete().eq('id', id)
   } catch {
     // Deleted locally
@@ -408,7 +700,10 @@ export async function updateTreeLink(id: string, link: TreeLink | null): Promise
   try {
     if (baseState) {
       const nextState = { ...baseState, linkedFrom: link ?? undefined }
-      await supabase.from('trees').update({ state: nextState }).eq('id', id)
+      await supabase
+        .from('trees')
+        .update({ state: nextState, linked_from: link ?? null })
+        .eq('id', id)
       if (existing) {
         await saveSessionLocally(
           {
@@ -420,9 +715,63 @@ export async function updateTreeLink(id: string, link: TreeLink | null): Promise
           true
         )
       }
+    } else {
+      await supabase.from('trees').update({ linked_from: link ?? null }).eq('id', id)
     }
   } catch {
     // Sync will handle later
+  }
+}
+
+/**
+ * One-time Supabase migration: reads all trees that only have a state blob
+ * and backfills their persons + unions into the relational tables.
+ * Safe to call on every app start — skips trees that already have relational rows.
+ */
+export async function migrateSupabaseToRelational(): Promise<void> {
+  if (!navigator.onLine || !isConfigured) return
+
+  const SUPA_MIGRATION_KEY = 'nasab-supabase-relational-migration-v1'
+  if (localStorage.getItem(SUPA_MIGRATION_KEY) === 'done') return
+
+  try {
+    const { data: trees, error } = await supabase
+      .from('trees')
+      .select('id, name, state, updated_at')
+      .order('updated_at', { ascending: false })
+      .limit(200)
+
+    if (error || !trees) return
+
+    let migrated = 0
+
+    for (const tree of trees) {
+      if (!tree.state?.root) continue
+
+      // Check if relational persons already exist
+      const { data: existing } = await supabase
+        .from('persons')
+        .select('id')
+        .eq('tree_id', tree.id)
+        .limit(1)
+
+      if (existing && existing.length > 0) continue
+
+      await upsertRelationalRows(
+        tree.id,
+        tree.name,
+        tree.state,
+        tree.updated_at || new Date().toISOString()
+      )
+      migrated++
+    }
+
+    localStorage.setItem(SUPA_MIGRATION_KEY, 'done')
+    if (migrated > 0) {
+      console.log(`[nasab] Migrated ${migrated} Supabase trees to relational format`)
+    }
+  } catch (err) {
+    console.warn('[nasab] Supabase relational migration failed, will retry next load:', err)
   }
 }
 

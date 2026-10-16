@@ -14,6 +14,7 @@ interface UseUnifiedTreeOptions {
   mainTreeName: string
   sessions: TreeMeta[]
   enabled?: boolean
+  commonFatherName?: string
 }
 
 interface UseUnifiedTreeReturn {
@@ -37,6 +38,7 @@ export function useUnifiedTree({
   mainTreeName,
   sessions,
   enabled = true,
+  commonFatherName,
 }: UseUnifiedTreeOptions): UseUnifiedTreeReturn {
   const [unifiedResult, setUnifiedResult] = useState<UnifiedTreeResult | null>(null)
   const [isLoading, setIsLoading] = useState(false)
@@ -111,7 +113,7 @@ export function useUnifiedTree({
     )
       .then((results) => {
         const branches: ConnectedBranchInput[] = results.filter((b): b is ConnectedBranchInput => b !== null)
-        const result = buildUnifiedTree(idSnapshot, rootSnapshot, nameSnapshot, branches)
+        const result = buildUnifiedTree(idSnapshot, rootSnapshot, nameSnapshot, branches, commonFatherName)
         setUnifiedResult(result)
       })
       .catch((err) => {
@@ -127,8 +129,8 @@ export function useUnifiedTree({
         setIsLoading(false)
         buildInFlight.current = false
       })
-    // Re-run when tree IDs change, unified toggled, or mainRoot is loaded / changed
-  }, [mainTreeId, branchIdsKey, enabled, mainRoot?.id, mainRoot?.name, mainRoot?.children?.length])
+    // Re-run when tree IDs change, unified toggled, commonFatherName changed, or mainRoot is loaded / changed
+  }, [mainTreeId, branchIdsKey, enabled, commonFatherName, mainRoot?.id, mainRoot?.name, mainRoot?.children?.length])
 
   return {
     unifiedResult,

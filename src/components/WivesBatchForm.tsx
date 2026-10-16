@@ -14,6 +14,7 @@ interface WivesBatchFormProps {
   lineageText: string
   isCurrent: boolean
   progressLabel: string
+  continueLabel?: string
   currentTreeId?: string
   currentTreeName?: string
   availableTrees?: TreeMeta[]
@@ -38,6 +39,7 @@ export function WivesBatchForm({
   lineageText,
   isCurrent,
   progressLabel,
+  continueLabel,
   currentTreeId,
   currentTreeName,
   availableTrees,
@@ -367,7 +369,7 @@ export function WivesBatchForm({
               className="primary"
               onClick={() => commit(true)}
             >
-              حفظ والانتقال للتالي
+              {continueLabel || 'حفظ والانتقال للتالي'}
             </button>
             <button type="button" onClick={() => commit(false)}>
               حفظ فقط

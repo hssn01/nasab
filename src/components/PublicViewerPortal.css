@@ -1335,3 +1335,306 @@
   }
 }
 
+/* ── Edit Mode & Editor Toggle Button ── */
+.pv-btn-edit {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full, 9999px);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.18s ease;
+  white-space: nowrap;
+}
+
+.pv-btn-edit:hover {
+  background: var(--bg-hover);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.pv-btn-edit.active {
+  background: linear-gradient(135deg, var(--accent) 0%, #b8862d 100%);
+  color: #ffffff;
+  border-color: var(--accent);
+  box-shadow: 0 2px 10px rgba(184, 134, 45, 0.3);
+}
+
+.pv-edit-btn-icon {
+  font-size: 14px;
+}
+
+/* ── Canvas Edit Mode Banner ── */
+.v-edit-mode-banner {
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(36, 30, 24, 0.9);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  color: #ffd880;
+  border: 1px solid rgba(255, 216, 128, 0.4);
+  padding: 7px 18px;
+  border-radius: 9999px;
+  font-size: 12.5px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+  z-index: 30;
+  pointer-events: none;
+  max-width: 90vw;
+  text-align: center;
+}
+
+.v-edit-mode-icon {
+  font-size: 14px;
+}
+
+.v-tree-card.is-edit-mode {
+  cursor: pointer;
+  box-shadow: 0 2px 10px rgba(184, 134, 45, 0.18);
+}
+
+.v-tree-card.is-edit-mode:hover {
+  border-color: var(--accent) !important;
+  transform: translateY(-2px);
+  box-shadow: 0 6px 18px rgba(184, 134, 45, 0.28);
+}
+
+.v-card-edit-badge {
+  font-size: 11px;
+  margin-inline-start: auto;
+  opacity: 0.8;
+}
+
+/* ── Person Bottom Sheet Editing UI ── */
+.v-sheet-name-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.v-sheet-inline-edit-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  font-size: 12px;
+  font-weight: 700;
+  background: var(--bg-sunken);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--accent);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.v-sheet-inline-edit-btn:hover {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+
+.v-sheet-rename-form {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  width: 100%;
+}
+
+.v-sheet-rename-input {
+  flex: 1;
+  min-width: 160px;
+  padding: 6px 12px;
+  font-size: 16px;
+  font-weight: 700;
+  background: var(--bg);
+  color: var(--text-strong);
+  border: 1.5px solid var(--accent);
+  border-radius: 8px;
+  outline: none;
+}
+
+.v-section-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.v-sheet-action-link-btn {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--accent);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 6px;
+  transition: background 0.15s;
+}
+
+.v-sheet-action-link-btn:hover {
+  background: var(--accent-soft);
+}
+
+.v-chip-wrapper {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--bg-sunken);
+  border: 1px solid var(--border);
+  border-radius: 9999px;
+  padding: 2px 8px;
+}
+
+.v-chip-del-btn {
+  background: none;
+  border: none;
+  color: var(--danger);
+  font-size: 12px;
+  font-weight: bold;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+  opacity: 0.7;
+  transition: opacity 0.15s;
+}
+
+.v-chip-del-btn:hover {
+  opacity: 1;
+}
+
+.v-sheet-add-form {
+  background: var(--bg-sunken);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.v-form-field-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-dim);
+}
+
+.v-sheet-form-input {
+  width: 100%;
+  padding: 8px 12px;
+  font-size: 14px;
+  background: var(--bg);
+  color: var(--text-strong);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.v-sheet-form-input:focus {
+  border-color: var(--accent);
+}
+
+.v-sheet-form-btns {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.v-sheet-save-btn {
+  padding: 6px 16px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.v-sheet-save-btn:hover {
+  background: #a87200;
+}
+
+.v-sheet-cancel-btn {
+  padding: 6px 14px;
+  background: var(--bg);
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.v-sheet-cancel-btn:hover {
+  color: var(--text-strong);
+  background: var(--bg-hover);
+}
+
+.v-sheet-danger-zone {
+  margin-top: 8px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border);
+}
+
+.v-sheet-delete-trigger-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--danger);
+  background: var(--danger-soft);
+  border: 1px solid color-mix(in oklch, var(--danger), transparent 70%);
+  border-radius: 8px;
+  padding: 6px 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.v-sheet-delete-trigger-btn:hover {
+  background: var(--danger);
+  color: #fff;
+}
+
+.v-delete-confirm-box {
+  background: var(--danger-soft);
+  border: 1px solid color-mix(in oklch, var(--danger), transparent 60%);
+  border-radius: 10px;
+  padding: 12px;
+}
+
+.v-delete-confirm-text {
+  font-size: 13px;
+  color: var(--danger);
+  margin: 0 0 10px 0;
+  line-height: 1.4;
+}
+
+.v-sheet-danger-btn {
+  padding: 6px 16px;
+  background: var(--danger);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+

@@ -45,9 +45,16 @@ export interface Person {
   mother?: string | null
   /** Metadata attached when displayed in a unified multi-tree web view */
   branchMeta?: BranchMeta
+  /** Linked spouse (e.g. husband of a daughter branch in unified view) */
+  linkedSpouse?: Person
 }
 
-export type Phase = 'setup' | 'enter-children' | 'add-wives' | 'complete'
+export type Phase =
+  | 'setup'
+  | 'enter-children'
+  | 'add-wives'
+  | 'assign-mothers'
+  | 'complete'
 
 export type TreeLinkType = 'daughter-branch' | 'brother-branch' | 'other'
 
@@ -108,4 +115,65 @@ export interface DbPerson {
   mother?: string | null
   updated_at: string
   synced?: boolean
+}
+
+/** Normalized person in the relational database model */
+export interface RelationalPerson {
+  id: string
+  treeId: string
+  name: string
+  gender: Gender
+  fatherId: string | null
+  motherId: string | null
+  unionId: string | null
+  birthOrder: number
+  notes?: string
+  branchMeta?: BranchMeta
+  updated_at: string
+  synced?: boolean
+}
+
+/** Normalized union (marriage / مصاهرة) in the relational database model */
+export interface RelationalUnion {
+  id: string
+  treeId: string
+  husbandId: string
+  type: 'tree' | 'external'
+  /** If type === 'tree' */
+  wifePersonId?: string
+  wifeTreeId?: string
+  wifeTreeName?: string
+  wifePersonName?: string
+  wifeLineageLabel?: string
+  /** If type === 'external' */
+  externalName?: string
+  externalFamily?: string
+  externalTribute?: string
+  marriageOrder: number
+  notes?: string
+  updated_at: string
+  synced?: boolean
+}
+
+/** Normalized tree metadata and builder state */
+export interface RelationalTree {
+  id: string
+  name: string
+  rootPersonId: string | null
+  phase: Phase
+  currentPersonId: string | null
+  maleCounter: number
+  femaleCounter: number
+  malesQueue: string[]
+  currentMaleIndex: number
+  linkedFrom?: TreeLink
+  updated_at: string
+  synced?: boolean
+}
+
+/** Complete relational package of a tree */
+export interface RelationalTreeBundle {
+  tree: RelationalTree
+  persons: RelationalPerson[]
+  unions: RelationalUnion[]
 }

@@ -126,17 +126,26 @@ export function useTreeBuilder(treeId: string) {
 
     fetchTreeState(treeId)
       .then((cloudState) => {
-        if (cloudState) {
+        if (cloudState && cloudState.root) {
           const hydrated = hydrateState(cloudState)
           setState(hydrated)
           setCachedState(treeId, hydrated)
+          hasLoadedRef.current = true
+        } else if (cloudState) {
+          setState(cloudState)
+          setCachedState(treeId, cloudState)
+          hasLoadedRef.current = true
+        } else if (cached && cached.root) {
+          hasLoadedRef.current = true
         }
       })
-      .catch(() => {
-        // Offline or error — keep using cache safely
+      .catch((err) => {
+        console.warn('[nasab] fetchTreeState error in useTreeBuilder:', err)
+        if (cached && cached.root) {
+          hasLoadedRef.current = true
+        }
       })
       .finally(() => {
-        hasLoadedRef.current = true
         setIsSyncing(false)
       })
   }, [treeId])
@@ -162,6 +171,7 @@ export function useTreeBuilder(treeId: string) {
   // ── Tree builder actions (unchanged from before) ──
 
   const startRoot = useCallback((name: string) => {
+    hasLoadedRef.current = true
     const root: Person = {
       id: 'M001',
       name: name.trim(),
@@ -382,6 +392,13 @@ export function useTreeBuilder(treeId: string) {
     [],
   )
 
+  function getMultiWifeMales(root: Person): Person[] {
+    const males = collectMalesDFS(root)
+    return males.filter(
+      (male) => (male.wives?.length ?? 0) > 1 && (male.children?.length ?? 0) > 0,
+    )
+  }
+
   function beginWivesPhase(prev: TreeState): TreeState {
     if (!prev.root) return { ...prev, phase: 'complete', currentPersonId: null }
     const males = collectMalesDFS(prev.root)
@@ -399,6 +416,27 @@ export function useTreeBuilder(treeId: string) {
       phase: 'add-wives',
       currentPersonId: males[0].id,
       malesQueue: males.map((male) => male.id),
+      currentMaleIndex: 0,
+    }
+  }
+
+  function beginMothersPhase(prev: TreeState): TreeState {
+    if (!prev.root) return { ...prev, phase: 'complete', currentPersonId: null }
+    const multiWifeMales = getMultiWifeMales(prev.root)
+    if (multiWifeMales.length === 0) {
+      return {
+        ...prev,
+        phase: 'complete',
+        currentPersonId: null,
+        malesQueue: [],
+        currentMaleIndex: 0,
+      }
+    }
+    return {
+      ...prev,
+      phase: 'assign-mothers',
+      currentPersonId: multiWifeMales[0].id,
+      malesQueue: multiWifeMales.map((male) => male.id),
       currentMaleIndex: 0,
     }
   }
@@ -461,7 +499,7 @@ export function useTreeBuilder(treeId: string) {
       const nextIndex =
         (queueIndex >= 0 ? queueIndex : updated.currentMaleIndex) + 1
       if (nextIndex >= updated.malesQueue.length) {
-        return { ...updated, phase: 'complete', currentPersonId: null }
+        return beginMothersPhase(updated)
       }
       return {
         ...updated,
@@ -508,6 +546,58 @@ export function useTreeBuilder(treeId: string) {
     setState((prev) => beginWivesPhase(prev))
   }, [])
 
+  const startMothersPhase = useCallback(() => {
+    setState((prev) => beginMothersPhase(prev))
+  }, [])
+
+  const setMothersAndContinue = useCallback(
+    (fatherId: string, assignments: Record<string, string | null>) => {
+      setState((prev) => {
+        if (!prev.root) return prev
+        const root = cloneRoot(prev.root)
+        const father = findPerson(root, fatherId)
+        if (father && father.gender === 'M') {
+          for (const child of father.children) {
+            if (Object.prototype.hasOwnProperty.call(assignments, child.id)) {
+              const value = assignments[child.id]
+              child.mother = value?.trim() || null
+            }
+          }
+        }
+        const updated = { ...prev, root }
+        const queueIndex = updated.malesQueue.indexOf(fatherId)
+        const nextIndex =
+          (queueIndex >= 0 ? queueIndex : updated.currentMaleIndex) + 1
+        if (nextIndex >= updated.malesQueue.length) {
+          return { ...updated, phase: 'complete', currentPersonId: null }
+        }
+        return {
+          ...updated,
+          currentMaleIndex: nextIndex,
+          currentPersonId: updated.malesQueue[nextIndex],
+        }
+      })
+    },
+    [],
+  )
+
+  const skipMotherAndContinue = useCallback(() => {
+    setState((prev) => {
+      if (!prev.root || !prev.currentPersonId) return prev
+      const queueIndex = prev.malesQueue.indexOf(prev.currentPersonId)
+      const nextIndex =
+        (queueIndex >= 0 ? queueIndex : prev.currentMaleIndex) + 1
+      if (nextIndex >= prev.malesQueue.length) {
+        return { ...prev, phase: 'complete', currentPersonId: null }
+      }
+      return {
+        ...prev,
+        currentMaleIndex: nextIndex,
+        currentPersonId: prev.malesQueue[nextIndex],
+      }
+    })
+  }, [])
+
   const goToPhase = useCallback((targetPhase: Phase) => {
     setState((prev) => {
       if (!prev.root) return prev
@@ -541,6 +631,32 @@ export function useTreeBuilder(treeId: string) {
         return {
           ...prev,
           phase: 'add-wives',
+          currentPersonId,
+          malesQueue,
+          currentMaleIndex,
+        }
+      }
+      if (targetPhase === 'assign-mothers') {
+        const multiWifeMales = getMultiWifeMales(prev.root)
+        const malesQueue = multiWifeMales.map((m) => m.id)
+        if (malesQueue.length === 0) {
+          return {
+            ...prev,
+            phase: 'assign-mothers',
+            currentPersonId: null,
+            malesQueue: [],
+            currentMaleIndex: 0,
+          }
+        }
+        let currentMaleIndex = 0
+        let currentPersonId = malesQueue[0]
+        if (prev.currentPersonId && malesQueue.includes(prev.currentPersonId)) {
+          currentMaleIndex = malesQueue.indexOf(prev.currentPersonId)
+          currentPersonId = prev.currentPersonId
+        }
+        return {
+          ...prev,
+          phase: 'assign-mothers',
           currentPersonId,
           malesQueue,
           currentMaleIndex,
@@ -620,6 +736,45 @@ export function useTreeBuilder(treeId: string) {
           root,
           currentPersonId,
           malesQueue,
+          currentMaleIndex,
+        }
+      }
+
+      if (prev.phase === 'assign-mothers') {
+        const multiWifeMales = getMultiWifeMales(root)
+        const multiQueue = multiWifeMales.map((m) => m.id)
+        if (multiQueue.length === 0) {
+          return {
+            ...prev,
+            root,
+            phase: 'complete',
+            currentPersonId: null,
+            malesQueue: [],
+            currentMaleIndex: 0,
+          }
+        }
+        let currentPersonId = prev.currentPersonId
+        let currentMaleIndex = prev.currentMaleIndex
+
+        if (
+          currentWasDeleted ||
+          !currentPersonId ||
+          !multiQueue.includes(currentPersonId)
+        ) {
+          currentMaleIndex = Math.min(
+            prev.currentMaleIndex,
+            multiQueue.length - 1,
+          )
+          currentPersonId = multiQueue[currentMaleIndex]
+        } else {
+          currentMaleIndex = multiQueue.indexOf(currentPersonId)
+        }
+
+        return {
+          ...prev,
+          root,
+          currentPersonId,
+          malesQueue: multiQueue,
           currentMaleIndex,
         }
       }
@@ -736,7 +891,7 @@ export function useTreeBuilder(treeId: string) {
     setState((prev) => {
       const nextIndex = prev.currentMaleIndex + 1
       if (nextIndex >= prev.malesQueue.length) {
-        return { ...prev, phase: 'complete', currentPersonId: null }
+        return beginMothersPhase(prev)
       }
       return {
         ...prev,
@@ -778,6 +933,7 @@ export function useTreeBuilder(treeId: string) {
 
     const phase =
       imported.phase === 'complete' ||
+      imported.phase === 'assign-mothers' ||
       imported.phase === 'add-wives' ||
       imported.phase === 'enter-children' ||
       imported.phase === 'setup'
@@ -799,7 +955,7 @@ export function useTreeBuilder(treeId: string) {
       currentPersonId:
         phase === 'complete'
           ? null
-          : phase === 'add-wives'
+          : phase === 'add-wives' || phase === 'assign-mothers'
             ? (malesQueue[currentMaleIndex] ?? males[0]?.id ?? null)
             : currentId,
       maleCounter: Math.max(imported.maleCounter ?? 0, counters.maleCounter),
@@ -842,6 +998,9 @@ export function useTreeBuilder(treeId: string) {
     setChildMother,
     setChildrenMothers,
     startWivesPhase,
+    startMothersPhase,
+    setMothersAndContinue,
+    skipMotherAndContinue,
     goToPhase,
     finishWives,
     exportProject,

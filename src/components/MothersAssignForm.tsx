@@ -6,8 +6,14 @@ interface MothersAssignFormProps {
   person: Person
   root: Person
   lineageText: string
+  isCurrent?: boolean
+  progressLabel?: string
+  continueLabel?: string
   onSave: (assignments: Record<string, string | null>) => void
+  onSaveAndContinue?: (assignments: Record<string, string | null>) => void
+  onReturnToCurrent?: () => void
   onBack?: () => void
+  onSkip?: () => void
 }
 
 const UNKNOWN = ''
@@ -30,8 +36,14 @@ export function MothersAssignForm({
   person,
   root,
   lineageText,
+  isCurrent,
+  progressLabel,
+  continueLabel,
   onSave,
+  onSaveAndContinue,
+  onReturnToCurrent,
   onBack,
+  onSkip,
 }: MothersAssignFormProps) {
   const [assignments, setAssignments] = useState<Record<string, string>>(() => {
     const initial: Record<string, string> = {}
@@ -62,13 +74,17 @@ export function MothersAssignForm({
     })
   }
 
-  function handleSave() {
+  function handleSave(andContinue = false) {
     const payload: Record<string, string | null> = {}
     for (const child of children) {
       const value = assignments[child.id]?.trim() || null
       payload[child.id] = value
     }
-    onSave(payload)
+    if (andContinue && onSaveAndContinue) {
+      onSaveAndContinue(payload)
+    } else {
+      onSave(payload)
+    }
   }
 
   if (children.length === 0) {
@@ -146,6 +162,11 @@ export function MothersAssignForm({
         </div>
         <div className="batch-heading-meta">
           <span className="person-code">{person.id}</span>
+          {progressLabel && (
+            <span className="wives-progress" style={{ color: 'var(--accent)', fontWeight: 600 }}>
+              {progressLabel}
+            </span>
+          )}
           <span className="wives-progress">
             {assignedCount.toLocaleString('ar')} /{' '}
             {children.length.toLocaleString('ar')} معيّن
@@ -224,13 +245,53 @@ export function MothersAssignForm({
       </ul>
 
       <div className="batch-actions">
-        <button type="button" className="primary" onClick={handleSave}>
-          حفظ الأمهات
-        </button>
-        {onBack && (
-          <button type="button" onClick={onBack}>
-            رجوع
-          </button>
+        {isCurrent && onSaveAndContinue ? (
+          <>
+            <button
+              type="button"
+              className="primary"
+              onClick={() => handleSave(true)}
+            >
+              {continueLabel || 'حفظ والانتقال للتالي'}
+            </button>
+            <button type="button" onClick={() => handleSave(false)}>
+              حفظ فقط
+            </button>
+            {onSkip && (
+              <button type="button" className="ghost" onClick={onSkip}>
+                تخطي إلى التالي
+              </button>
+            )}
+          </>
+        ) : !isCurrent && onReturnToCurrent ? (
+          <>
+            <button
+              type="button"
+              className="primary"
+              onClick={() => handleSave(false)}
+            >
+              حفظ التعديلات
+            </button>
+            <button type="button" onClick={onReturnToCurrent}>
+              العودة إلى موضع الإدخال
+            </button>
+            {onBack && (
+              <button type="button" onClick={onBack}>
+                رجوع
+              </button>
+            )}
+          </>
+        ) : (
+          <>
+            <button type="button" className="primary" onClick={() => handleSave(false)}>
+              حفظ الأمهات
+            </button>
+            {onBack && (
+              <button type="button" onClick={onBack}>
+                رجوع
+              </button>
+            )}
+          </>
         )}
       </div>
     </section>

@@ -129,11 +129,6 @@ export function LinkTreeModal({
     }
   }, [mainTree, allTrees, selectedMainId, targetBranchTreeId])
 
-  if (!isOpen) return null
-
-  // Filter candidates for "link existing tree": trees that are not the current main tree
-  const existingCandidates = allTrees.filter((t) => t.id !== selectedMainId)
-
   // Enriched females with lineage chain (e.g. sister of 5th great grandfather)
   const femalesWithLineage = useMemo(() => {
     return females.map((f) => {
@@ -141,6 +136,11 @@ export function LinkTreeModal({
       return { person: f, lineage }
     })
   }, [females, mainTreeRoot])
+
+  if (!isOpen) return null
+
+  // Filter candidates for "link existing tree": trees that are not the current main tree
+  const existingCandidates = allTrees.filter((t) => t.id !== selectedMainId)
 
   const filteredFemales = femalesWithLineage.filter(({ person, lineage }) => {
     if (!femaleFilter.trim()) return true
