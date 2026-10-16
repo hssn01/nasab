@@ -52,7 +52,10 @@ export function useSessionList() {
             remote.state?.root?.name || localMatch?.rootAncestor || remote.name
 
           const linkedFrom =
-            remote.state?.linkedFrom || (remote as any).link || localMatch?.linkedFrom
+            remote.state?.linkedFrom ||
+            (remote as any).linked_from ||
+            (remote as any).link ||
+            localMatch?.linkedFrom
 
           return {
             id: remote.id,

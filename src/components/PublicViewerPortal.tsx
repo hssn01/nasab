@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react'
 import { fetchDeviceTrees, fetchTreeState, saveTreeState } from '../db'
 import type { ExternalWife, Person, TreeMeta, TreeState, Wife } from '../types'
 import {
+  buildUnifiedTree,
   countPeople,
   findParent,
   findPath,
@@ -372,12 +373,49 @@ export function PublicViewerPortal({
       setLoadingTree(true)
       try {
         const state = await fetchTreeState(selectedTreeId!)
-        if (state) {
-          setTreeState(state)
+        if (state && state.root) {
+          let finalState = state
+          try {
+            const allTrees = await fetchDeviceTrees()
+            const connectedBranches = allTrees.filter((t) => t.linkedFrom?.mainTreeId === selectedTreeId)
+            if (connectedBranches.length > 0) {
+              const loadedBranches = await Promise.all(
+                connectedBranches.map(async (b) => {
+                  const bState = await fetchTreeState(b.id)
+                  if (bState?.root) {
+                    return {
+                      id: b.id,
+                      name: b.name,
+                      state: bState,
+                      linkedFrom: b.linkedFrom,
+                    }
+                  }
+                  return null
+                })
+              )
+              const validBranches = loadedBranches.filter((b): b is NonNullable<typeof b> => b !== null)
+              if (validBranches.length > 0) {
+                const unified = buildUnifiedTree(
+                  selectedTreeId!,
+                  state.root,
+                  state.root.name,
+                  validBranches,
+                  'محمد'
+                )
+                if (unified?.root) {
+                  finalState = { ...state, root: unified.root }
+                }
+              }
+            }
+          } catch (e) {
+            console.warn('[PublicViewerPortal] Failed to unify connected branches:', e)
+          }
+
+          setTreeState(finalState)
           const params = new URLSearchParams(window.location.search)
           const personId = params.get('person')
-          if (personId && state.root) {
-            const found = findPerson(state.root, personId)
+          if (personId && finalState.root) {
+            const found = findPerson(finalState.root, personId)
             if (found) setSelectedPerson(found)
           }
         }

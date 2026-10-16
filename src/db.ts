@@ -288,14 +288,25 @@ export async function fetchDeviceTrees(): Promise<TreeMeta[]> {
   }
 
   try {
-    const { data, error } = await supabase
+    let data: any = null
+    const { data: fullData, error: fullErr } = await supabase
       .from('trees')
       .select('id, name, updated_at, state, root_person_id, linked_from')
       .order('updated_at', { ascending: false })
       .limit(50)
 
-    if (error || !data) {
-      return cached
+    if (!fullErr && fullData) {
+      data = fullData
+    } else {
+      const { data: safeData, error: safeErr } = await supabase
+        .from('trees')
+        .select('id, name, updated_at, state')
+        .order('updated_at', { ascending: false })
+        .limit(50)
+      if (safeErr || !safeData) {
+        return cached
+      }
+      data = safeData
     }
 
     const localSessions = await getAllSessions().catch(() => [])
@@ -471,6 +482,7 @@ export async function createTree(
       linked_from: link ?? null,
     }
 
+    let realId: string = localId
     const { data, error } = await supabase
       .from('trees')
       .insert(treeRow)
@@ -478,10 +490,26 @@ export async function createTree(
       .single()
 
     if (error || !data) {
-      return localId
-    }
+      // Fallback: insert with basic columns only
+      const blobRow: any = {
+        name,
+        state: stateWithLink,
+        updated_at: now,
+      }
+      const { data: bData, error: bErr } = await supabase
+        .from('trees')
+        .insert(blobRow)
+        .select('id')
+        .single()
 
-    const realId = data.id as string
+      if (bErr || !bData) {
+        console.warn('[nasab] createTree failed on Supabase:', bErr || error)
+        return localId
+      }
+      realId = bData.id as string
+    } else {
+      realId = data.id as string
+    }
 
     // Write relational persons + unions rows
     await upsertRelationalRows(realId, name, stateWithLink, now)
@@ -700,10 +728,19 @@ export async function updateTreeLink(id: string, link: TreeLink | null): Promise
   try {
     if (baseState) {
       const nextState = { ...baseState, linkedFrom: link ?? undefined }
-      await supabase
+      // Update state blob (with fallback if linked_from column does not exist)
+      const { error } = await supabase
         .from('trees')
-        .update({ state: nextState, linked_from: link ?? null })
+        .update({ state: nextState, linked_from: link ?? null, updated_at: new Date().toISOString() })
         .eq('id', id)
+
+      if (error) {
+        await supabase
+          .from('trees')
+          .update({ state: nextState, updated_at: new Date().toISOString() })
+          .eq('id', id)
+      }
+
       if (existing) {
         await saveSessionLocally(
           {
@@ -716,10 +753,17 @@ export async function updateTreeLink(id: string, link: TreeLink | null): Promise
         )
       }
     } else {
-      await supabase.from('trees').update({ linked_from: link ?? null }).eq('id', id)
+      const { error } = await supabase.from('trees').update({ linked_from: link ?? null }).eq('id', id)
+      if (error) {
+        const { data: row } = await supabase.from('trees').select('state').eq('id', id).single()
+        if (row?.state) {
+          const nextState = { ...row.state, linkedFrom: link ?? undefined }
+          await supabase.from('trees').update({ state: nextState, updated_at: new Date().toISOString() }).eq('id', id)
+        }
+      }
     }
-  } catch {
-    // Sync will handle later
+  } catch (err) {
+    console.warn('[nasab] updateTreeLink failed:', err)
   }
 }
 
