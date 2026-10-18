@@ -134,14 +134,18 @@ export function useTreeBuilder(treeId: string) {
     fetchTreeState(treeId)
       .then((cloudState) => {
         if (cloudState && cloudState.root) {
-          const hydrated = hydrateState(cloudState)
+          const effectiveLink = cloudState.linkedFrom || cached?.linkedFrom || stateRef.current.linkedFrom
+          const finalCloudState = effectiveLink ? { ...cloudState, linkedFrom: effectiveLink } : cloudState
+          const hydrated = hydrateState(finalCloudState)
           setState(hydrated)
           setCachedState(treeId, hydrated)
           hasLoadedRef.current = true
           isDirtyRef.current = false
         } else if (cloudState) {
-          setState(cloudState)
-          setCachedState(treeId, cloudState)
+          const effectiveLink = cloudState.linkedFrom || cached?.linkedFrom || stateRef.current.linkedFrom
+          const finalCloudState = effectiveLink ? { ...cloudState, linkedFrom: effectiveLink } : cloudState
+          setState(finalCloudState)
+          setCachedState(treeId, finalCloudState)
           hasLoadedRef.current = true
           isDirtyRef.current = false
         } else if (cached && cached.root) {
@@ -191,13 +195,14 @@ export function useTreeBuilder(treeId: string) {
       children: [],
       wives: [],
     }
-    setDirtyState({
+    setDirtyState((prev) => ({
       ...initialState,
+      linkedFrom: prev.linkedFrom,
       root,
       phase: 'enter-children',
       currentPersonId: 'M001',
       maleCounter: 2,
-    })
+    }))
   }, [])
 
   const addChild = useCallback(
@@ -963,7 +968,9 @@ export function useTreeBuilder(treeId: string) {
         ? imported.currentMaleIndex
         : 0
 
-    setDirtyState({
+    setDirtyState((prev) => ({
+      ...prev,
+      linkedFrom: (imported as any).linkedFrom || prev.linkedFrom,
       root,
       phase,
       currentPersonId:
@@ -979,7 +986,7 @@ export function useTreeBuilder(treeId: string) {
       ),
       malesQueue,
       currentMaleIndex,
-    })
+    }))
     return true
   }, [])
 

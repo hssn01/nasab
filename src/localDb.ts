@@ -207,27 +207,39 @@ export async function downloadSessionFromSupabase(
     persons = extractPersons(sessionData.state.root, sessionId, sessionData.updated_at)
   }
 
-  // Save to IndexedDB — mark as synced & downloaded (clean copy from server)
   const db = await getDb()
-  const rootAncestor = sessionData.state?.root?.name || sessionData.name
+  const existing = await db.get<Session>('sessions', sessionId)
+  const effectiveLink =
+    sessionData.link ||
+    sessionData.linkedFrom ||
+    sessionData.state?.linkedFrom ||
+    existing?.linkedFrom ||
+    existing?.state?.linkedFrom
+
+  const finalState = sessionData.state
+    ? { ...sessionData.state, ...(effectiveLink ? { linkedFrom: effectiveLink } : {}) }
+    : ({
+        root: null,
+        phase: 'setup',
+        currentPersonId: null,
+        maleCounter: 1,
+        femaleCounter: 0,
+        malesQueue: [],
+        currentMaleIndex: 0,
+        ...(effectiveLink ? { linkedFrom: effectiveLink } : {}),
+      } as TreeState)
+
+  const rootAncestor = finalState.root?.name || existing?.rootAncestor || sessionData.name
 
   const localSession: Session = {
     id: sessionData.id,
     name: sessionData.name,
-    state: sessionData.state || ({
-      root: null,
-      phase: 'setup',
-      currentPersonId: null,
-      maleCounter: 1,
-      femaleCounter: 0,
-      malesQueue: [],
-      currentMaleIndex: 0,
-    } as TreeState),
+    state: finalState,
     updated_at: sessionData.updated_at,
     downloaded: true,
     synced: true,
     rootAncestor,
-    linkedFrom: sessionData.link || sessionData.linkedFrom || sessionData.state?.linkedFrom,
+    linkedFrom: effectiveLink,
   }
 
   await db.put('sessions', localSession)
@@ -280,19 +292,32 @@ export async function saveSessionLocally(
   markSynced: boolean = false
 ): Promise<void> {
   const db = await getDb()
+  const existing = await db.get<Session>('sessions', session.id)
+
+  const effectiveLink =
+    session.linkedFrom ||
+    session.state?.linkedFrom ||
+    existing?.linkedFrom ||
+    existing?.state?.linkedFrom
+
+  const updatedState = session.state
+    ? (effectiveLink ? { ...session.state, linkedFrom: effectiveLink } : session.state)
+    : session.state
+
   const updatedSession: Session = {
     ...session,
+    state: updatedState,
     downloaded: true,
     synced: markSynced,
     updated_at: session.updated_at || new Date().toISOString(),
-    rootAncestor: session.state?.root?.name || session.name,
-    linkedFrom: session.linkedFrom || session.state?.linkedFrom,
+    rootAncestor: session.state?.root?.name || existing?.rootAncestor || session.name,
+    linkedFrom: effectiveLink,
   }
   await db.put('sessions', updatedSession)
 
   // Save normalized relational records
-  if (session.state) {
-    const bundle = treeToRelational(session.id, session.name, session.state, updatedSession.updated_at)
+  if (updatedSession.state) {
+    const bundle = treeToRelational(session.id, session.name, updatedSession.state, updatedSession.updated_at)
     for (const p of bundle.persons) {
       await db.put('persons', { ...p, sessionId: session.id, synced: markSynced })
     }
@@ -302,10 +327,12 @@ export async function saveSessionLocally(
   }
 
   // Also update local cache
-  try {
-    localStorage.setItem(`nasab-cache-v1-${session.id}`, JSON.stringify(session.state))
-  } catch {
-    // ignore
+  if (updatedSession.state) {
+    try {
+      localStorage.setItem(`nasab-cache-v1-${session.id}`, JSON.stringify(updatedSession.state))
+    } catch {
+      // ignore
+    }
   }
 }
 

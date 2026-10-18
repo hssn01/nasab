@@ -5,6 +5,7 @@ import {
   downloadSessionFromSupabase,
   getAllSessions,
 } from '../localDb'
+import { getCachedTreeList } from '../db'
 import type { TreeMeta } from '../types'
 
 export function useSessionList() {
@@ -40,22 +41,28 @@ export function useSessionList() {
           }
         }
 
-        // Fetch local IndexedDB sessions
+        // Fetch local IndexedDB sessions & metadata cache
         const local = await getAllSessions()
         const localMap = new Map(local.map((s) => [s.id, s]))
+        const cachedTreeList = getCachedTreeList()
+        const cachedMap = new Map(cachedTreeList.map((c) => [c.id, c]))
 
         // Merge remote trees with local downloaded status
         const merged: TreeMeta[] = remoteList.map((remote) => {
           const localMatch = localMap.get(remote.id)
+          const cachedMatch = cachedMap.get(remote.id)
           const isDownloaded = Boolean(localMatch && localMatch.downloaded)
+          const rState = typeof remote.state === 'string' ? JSON.parse(remote.state) : remote.state
           const rootAncestor =
-            remote.state?.root?.name || localMatch?.rootAncestor || remote.name
+            rState?.root?.name || localMatch?.rootAncestor || cachedMatch?.rootAncestor || remote.name
 
           const linkedFrom =
-            remote.state?.linkedFrom ||
+            rState?.linkedFrom ||
             (remote as any).linked_from ||
             (remote as any).link ||
-            localMatch?.linkedFrom
+            localMatch?.linkedFrom ||
+            localMatch?.state?.linkedFrom ||
+            cachedMatch?.linkedFrom
 
           return {
             id: remote.id,
@@ -88,6 +95,8 @@ export function useSessionList() {
       } else {
         // Offline: fetch from IndexedDB only
         const local = await getAllSessions()
+        const cachedTreeList = getCachedTreeList()
+        const cachedMap = new Map(cachedTreeList.map((c) => [c.id, c]))
         // Only show sessions that were downloaded or created locally
         const downloadedSessions = local.filter((s) => s.downloaded !== false)
 
@@ -99,7 +108,7 @@ export function useSessionList() {
             downloaded: true,
             synced: s.synced ?? true,
             rootAncestor: s.rootAncestor || s.state?.root?.name || s.name,
-            linkedFrom: s.linkedFrom || s.state?.linkedFrom,
+            linkedFrom: s.linkedFrom || s.state?.linkedFrom || cachedMap.get(s.id)?.linkedFrom,
           }))
         )
         setSource('local')
@@ -110,6 +119,8 @@ export function useSessionList() {
       // Fallback to local
       try {
         const local = await getAllSessions()
+        const cachedTreeList = getCachedTreeList()
+        const cachedMap = new Map(cachedTreeList.map((c) => [c.id, c]))
         setSessions(
           local.map((s) => ({
             id: s.id,
@@ -118,7 +129,7 @@ export function useSessionList() {
             downloaded: true,
             synced: s.synced ?? true,
             rootAncestor: s.rootAncestor || s.state?.root?.name || s.name,
-            linkedFrom: s.linkedFrom || s.state?.linkedFrom,
+            linkedFrom: s.linkedFrom || s.state?.linkedFrom || cachedMap.get(s.id)?.linkedFrom,
           }))
         )
         setSource('local')

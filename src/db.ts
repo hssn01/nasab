@@ -302,15 +302,28 @@ export async function fetchDeviceTrees(): Promise<TreeMeta[]> {
     const localSessions = await getAllSessions().catch(() => [])
     const localMap = new Map(localSessions.map((s) => [s.id, s]))
 
-    const remoteTrees: TreeMeta[] = data.map((t: any) => ({
-      id: t.id,
-      name: t.name,
-      updated_at: t.updated_at,
-      downloaded: Boolean(localMap.get(t.id)?.downloaded),
-      synced: true,
-      rootAncestor: t.state?.root?.name || t.name,
-      linkedFrom: t.state?.linkedFrom || localMap.get(t.id)?.linkedFrom,
-    }))
+    const remoteTrees: TreeMeta[] = data.map((t: any) => {
+      const stateObj = typeof t.state === 'string' ? JSON.parse(t.state) : t.state
+      const local = localMap.get(t.id)
+      const cachedItem = cached.find((c) => c.id === t.id)
+      const linkedFrom =
+        stateObj?.linkedFrom ||
+        t.linked_from ||
+        t.link ||
+        local?.linkedFrom ||
+        local?.state?.linkedFrom ||
+        cachedItem?.linkedFrom
+
+      return {
+        id: t.id,
+        name: t.name,
+        updated_at: t.updated_at,
+        downloaded: Boolean(local?.downloaded),
+        synced: true,
+        rootAncestor: stateObj?.root?.name || t.name,
+        linkedFrom,
+      }
+    })
 
     // Merge remote trees with any local-only offline trees
     const remoteIds = new Set(remoteTrees.map((t) => t.id))
@@ -346,8 +359,22 @@ export async function fetchTreeState(id: string): Promise<TreeState | null> {
       return local ? local.state : null
     }
 
-    const stateObj = data.state as TreeState | undefined
-    const effectiveLink = stateObj?.linkedFrom
+    const local = await getSession(id)
+    const treeListCached = getCachedTreeList()
+    const metaMatch = treeListCached.find((t) => t.id === id)
+
+    const rawState = data.state
+    const stateObj: TreeState | undefined =
+      typeof rawState === 'string' ? JSON.parse(rawState) : (rawState as TreeState | undefined)
+
+    const effectiveLink: TreeLink | undefined =
+      stateObj?.linkedFrom ||
+      (data as any).linked_from ||
+      (data as any).link ||
+      cached?.linkedFrom ||
+      local?.linkedFrom ||
+      local?.state?.linkedFrom ||
+      metaMatch?.linkedFrom
 
     // Always attempt reading normalized persons/unions first (highest fidelity)
     const relState = await fetchRelationalState(id, {
@@ -369,10 +396,10 @@ export async function fetchTreeState(id: string): Promise<TreeState | null> {
         ...relState,
         linkedFrom: effectiveLink || relState.linkedFrom,
       }
-    } else if (data.state && (data.state as TreeState).root) {
+    } else if (stateObj && stateObj.root) {
       state = {
-        ...(data.state as TreeState),
-        linkedFrom: effectiveLink || (data.state as TreeState).linkedFrom,
+        ...stateObj,
+        linkedFrom: effectiveLink || stateObj.linkedFrom,
       }
     } else if (relState) {
       state = {
@@ -380,25 +407,27 @@ export async function fetchTreeState(id: string): Promise<TreeState | null> {
         linkedFrom: effectiveLink || relState.linkedFrom,
       }
     } else {
-      state = (data.state as TreeState) || null
+      state = stateObj ? { ...stateObj, linkedFrom: effectiveLink || stateObj.linkedFrom } : null
+    }
+
+    if (state && effectiveLink && !state.linkedFrom) {
+      state.linkedFrom = effectiveLink
     }
 
     // Auto-backfill relational rows if blob exists but relational rows are missing
-    if (!relState && data.state && (data.state as TreeState).root) {
+    if (!relState && state && state.root) {
       console.log(`[nasab] Backfilling relational rows for tree ${id}`)
-      upsertRelationalRows(id, data.name, data.state as TreeState, data.updated_at || new Date().toISOString())
+      upsertRelationalRows(id, data.name, state, data.updated_at || new Date().toISOString())
     }
 
     if (!state) {
       if (cached) return cached
-      const local = await getSession(id)
       return local ? local.state : null
     }
 
     setCachedState(id, state)
 
     // Update local IndexedDB if already downloaded
-    const local = await getSession(id)
     if (local?.downloaded) {
       await saveSessionLocally(
         {
@@ -408,10 +437,20 @@ export async function fetchTreeState(id: string): Promise<TreeState | null> {
           updated_at: data.updated_at || new Date().toISOString(),
           downloaded: true,
           synced: true,
+          linkedFrom: effectiveLink,
         },
         true
       )
     }
+
+    // If local/cache had a linkedFrom that was missing from Supabase's state blob, sync it up
+    if (state && effectiveLink && !stateObj?.linkedFrom) {
+      void supabase
+        .from('trees')
+        .update({ state, updated_at: new Date().toISOString() })
+        .eq('id', id)
+    }
+
     return state
   } catch {
     if (cached) return cached
@@ -589,34 +628,17 @@ export async function saveTreeState(id: string, state: TreeState): Promise<void>
   if (treeIndex !== -1) {
     list[treeIndex].updated_at = now
     if (name) list[treeIndex].name = name
+    list[treeIndex].linkedFrom = effectiveLinkedFrom
     setCachedTreeList([...list])
   }
 
   if (!navigator.onLine || !isConfigured) return
 
   try {
-    const bundle = treeToRelational(id, sessionName, finalState, now)
-    const payload: any = {
-      state: finalState,            // dual-write: keep blob with preserved link
-      updated_at: now,
-      root_person_id: bundle.tree.rootPersonId ?? null,
-      phase: bundle.tree.phase,
-      current_person_id: bundle.tree.currentPersonId ?? null,
-      male_counter: bundle.tree.maleCounter,
-      female_counter: bundle.tree.femaleCounter,
-      males_queue: bundle.tree.malesQueue,
-      current_male_index: bundle.tree.currentMaleIndex,
-    }
+    const payload: any = { state: finalState, updated_at: now }
     if (name) payload.name = name
 
     const { error } = await supabase.from('trees').update(payload).eq('id', id)
-
-    // If schema cache hasn't refreshed yet, fall back to blob-only update
-    if (error) {
-      const blobPayload: any = { state: finalState, updated_at: now }
-      if (name) blobPayload.name = name
-      await supabase.from('trees').update(blobPayload).eq('id', id)
-    }
 
     // Write normalized rows in parallel (no await — don't block the save)
     upsertRelationalRows(id, sessionName, finalState, now)
@@ -626,11 +648,12 @@ export async function saveTreeState(id: string, state: TreeState): Promise<void>
         {
           id,
           name: sessionName,
-          state,
+          state: finalState,
           updated_at: now,
           downloaded: true,
           synced: true,
-          rootAncestor: state.root?.name || sessionName,
+          rootAncestor: finalState.root?.name || sessionName,
+          linkedFrom: effectiveLinkedFrom,
         },
         true
       )
@@ -690,22 +713,20 @@ export async function updateTreeLink(id: string, link: TreeLink | null): Promise
     baseState = await fetchTreeState(id)
   }
 
-  if (baseState) {
-    const nextState: TreeState = {
-      ...baseState,
-      linkedFrom: link ?? undefined,
-    }
-    setCachedState(id, nextState)
-
-    if (existing) {
-      await saveSessionLocally({
-        ...existing,
-        state: nextState,
+  const nextState: TreeState = baseState
+    ? { ...baseState, linkedFrom: link ?? undefined }
+    : ({
+        root: null,
+        phase: 'setup',
+        currentPersonId: null,
+        maleCounter: 1,
+        femaleCounter: 0,
+        malesQueue: [],
+        currentMaleIndex: 0,
         linkedFrom: link ?? undefined,
-        synced: false,
-      })
-    }
-  }
+      } as TreeState)
+
+  setCachedState(id, nextState)
 
   const list = getCachedTreeList()
   const idx = list.findIndex((t) => t.id === id)
@@ -714,44 +735,38 @@ export async function updateTreeLink(id: string, link: TreeLink | null): Promise
     setCachedTreeList([...list])
   }
 
+  const sessionName = existing?.name || (idx !== -1 ? list[idx].name : 'شجرة')
+  await saveSessionLocally({
+    id,
+    name: sessionName,
+    state: nextState,
+    linkedFrom: link ?? undefined,
+    synced: false,
+    downloaded: existing?.downloaded ?? true,
+    updated_at: new Date().toISOString(),
+  })
+
   if (!navigator.onLine || !isConfigured) return
 
   try {
-    if (baseState) {
-      const nextState = { ...baseState, linkedFrom: link ?? undefined }
-      // Update state blob (with fallback if linked_from column does not exist)
-      const { error } = await supabase
-        .from('trees')
-        .update({ state: nextState, linked_from: link ?? null, updated_at: new Date().toISOString() })
-        .eq('id', id)
+    const { error } = await supabase
+      .from('trees')
+      .update({ state: nextState, updated_at: new Date().toISOString() })
+      .eq('id', id)
 
-      if (error) {
-        await supabase
-          .from('trees')
-          .update({ state: nextState, updated_at: new Date().toISOString() })
-          .eq('id', id)
-      }
-
-      if (existing) {
-        await saveSessionLocally(
-          {
-            ...existing,
-            state: nextState,
-            linkedFrom: link ?? undefined,
-            synced: true,
-          },
-          true
-        )
-      }
-    } else {
-      const { error } = await supabase.from('trees').update({ linked_from: link ?? null }).eq('id', id)
-      if (error) {
-        const { data: row } = await supabase.from('trees').select('state').eq('id', id).single()
-        if (row?.state) {
-          const nextState = { ...row.state, linkedFrom: link ?? undefined }
-          await supabase.from('trees').update({ state: nextState, updated_at: new Date().toISOString() }).eq('id', id)
-        }
-      }
+    if (!error) {
+      await saveSessionLocally(
+        {
+          id,
+          name: sessionName,
+          state: nextState,
+          linkedFrom: link ?? undefined,
+          synced: true,
+          downloaded: existing?.downloaded ?? true,
+          updated_at: new Date().toISOString(),
+        },
+        true
+      )
     }
   } catch (err) {
     console.warn('[nasab] updateTreeLink failed:', err)
