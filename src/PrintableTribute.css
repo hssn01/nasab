@@ -1,5 +1,5 @@
 /* ==========================================================================
-   Printable Tribute & Archival Tree View (وثيقة ومشجّر النسب للطباعة)
+   Printable Tribute & Archival Tree View (وثيقة وسجل النسب للطباعة)
    ========================================================================== */
 
 .print-page-wrapper {
@@ -184,6 +184,41 @@
   background: #334155;
   color: #f8fafc;
   font-weight: 600;
+}
+
+.print-style-selector {
+  display: inline-flex;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.08);
+  padding: 3px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  gap: 3px;
+}
+
+.print-style-btn {
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  padding: 5px 12px;
+  font-size: 13px;
+  cursor: pointer;
+  border-radius: 6px;
+  transition: all 0.2s;
+  font-family: inherit;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.print-style-btn:hover {
+  color: #f8fafc;
+}
+
+.print-style-btn.active {
+  background: #2563eb;
+  color: #ffffff;
+  font-weight: 600;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
 }
 
 /* ── Screen Page Preview Canvas ── */
@@ -1701,6 +1736,664 @@
       font-size: 9.5pt;
       color: #71624c;
     }
+  }
+}
+
+/* ==========================================================================
+   STYLE: SIMPLE & MINIMAL (بسيط وعصري) — The clean modern PDF theme
+   ========================================================================== */
+
+.tribute-paper.style-simple {
+  background: #ffffff !important;
+  color: #0f172a !important;
+  font-family: 'Cairo', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif !important;
+  padding: 24px 32px !important;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08) !important;
+  border: 1px solid #e2e8f0 !important;
+}
+
+.tribute-paper.style-simple .tribute-outer-border {
+  border: none !important;
+  padding: 0 !important;
+  margin: 0 !important;
+}
+
+.tribute-paper.style-simple .tribute-inner-border {
+  border: none !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  background: transparent !important;
+}
+
+.tribute-paper.style-simple .corner-ornament {
+  display: none !important;
+}
+
+/* Simple Clean Header */
+.tribute-paper.style-simple .tribute-header {
+  border-bottom: 2px solid #0f172a !important;
+  padding-bottom: 12px !important;
+  margin-bottom: 16px !important;
+  text-align: center !important;
+}
+
+.tribute-paper.style-simple .tribute-basmala {
+  font-size: 14px !important;
+  color: #64748b !important;
+  font-weight: 600 !important;
+  margin-bottom: 4px !important;
+  letter-spacing: 0 !important;
+}
+
+.tribute-paper.style-simple .tribute-title-badge {
+  display: none !important;
+}
+
+.tribute-paper.style-simple .tribute-main-title {
+  font-size: 24px !important;
+  font-weight: 800 !important;
+  color: #0f172a !important;
+  margin: 4px 0 6px !important;
+}
+
+.tribute-paper.style-simple .tribute-progenitor {
+  font-size: 15px !important;
+  color: #334155 !important;
+  font-weight: 600 !important;
+}
+
+.tribute-paper.style-simple .tribute-divider {
+  display: none !important;
+}
+
+.tribute-paper.style-simple .tribute-lineage-text {
+  display: none !important;
+}
+
+.tribute-paper.style-simple .tribute-dedication {
+  display: none !important;
+}
+
+/* Simple Stats Bar: clean single-row bar */
+.tribute-paper.style-simple .tribute-stats-bar {
+  background: #f8fafc !important;
+  border: 1px solid #e2e8f0 !important;
+  border-radius: 6px !important;
+  padding: 8px 14px !important;
+  margin-bottom: 16px !important;
+  display: flex !important;
+  justify-content: space-between !important;
+  align-items: center !important;
+  flex-wrap: wrap !important;
+  gap: 8px !important;
+}
+
+.tribute-paper.style-simple .tribute-stats-bar > div {
+  display: flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+}
+
+.tribute-paper.style-simple .stat-item-label {
+  font-size: 11px !important;
+  color: #64748b !important;
+  margin-bottom: 0 !important;
+}
+
+.tribute-paper.style-simple .stat-item-val {
+  font-size: 13.5px !important;
+  font-weight: 700 !important;
+  color: #0f172a !important;
+}
+
+/* Simple Family Cards */
+.tribute-paper.style-simple .family-entry-card {
+  background: #ffffff !important;
+  border: 1px solid #e2e8f0 !important;
+  border-right: 3.5px solid #2563eb !important;
+  border-radius: 6px !important;
+  padding: 9px 13px 7px !important;
+  margin-bottom: 7px !important;
+  box-shadow: none !important;
+}
+
+.tribute-paper.style-simple .entry-father-header {
+  margin-bottom: 4px !important;
+}
+
+.tribute-paper.style-simple .entry-father-name {
+  color: #0f172a !important;
+  font-size: 15px !important;
+  font-weight: 700 !important;
+}
+
+.tribute-paper.style-simple .entry-generation-badge {
+  background: #f1f5f9 !important;
+  color: #475569 !important;
+  border: 1px solid #cbd5e1 !important;
+  font-size: 10px !important;
+  font-weight: 600 !important;
+  border-radius: 4px !important;
+  padding: 1px 6px !important;
+}
+
+.tribute-paper.style-simple .family-person-id {
+  background: #f1f5f9 !important;
+  color: #64748b !important;
+  border: 1px solid #e2e8f0 !important;
+  font-size: 10px !important;
+  padding: 1px 4px !important;
+  border-radius: 3px !important;
+}
+
+.tribute-paper.style-simple .entry-lineage-breadcrumb {
+  color: #64748b !important;
+  font-size: 11px !important;
+  margin-bottom: 4px !important;
+}
+
+.tribute-paper.style-simple .lineage-ancestor {
+  color: #334155 !important;
+}
+
+.tribute-paper.style-simple .lineage-sep {
+  color: #94a3b8 !important;
+}
+
+.tribute-paper.style-simple .entry-wives-row {
+  color: #475569 !important;
+  font-size: 11px !important;
+  margin-bottom: 4px !important;
+}
+
+.tribute-paper.style-simple .entry-wives-label {
+  color: #64748b !important;
+  font-weight: 600 !important;
+}
+
+.tribute-paper.style-simple .entry-wife-chip {
+  background: #fdf2f8 !important;
+  color: #9d174d !important;
+  border: 1px solid #fbcfe8 !important;
+  border-radius: 4px !important;
+  padding: 1px 6px !important;
+  font-size: 11px !important;
+}
+
+.tribute-paper.style-simple .entry-children-col {
+  margin-top: 4px !important;
+}
+
+.tribute-paper.style-simple .col-label {
+  font-size: 11px !important;
+  color: #64748b !important;
+  font-weight: 600 !important;
+}
+
+.tribute-paper.style-simple .child-chip.male-chip {
+  background: #f0f7ff !important;
+  color: #0369a1 !important;
+  border: 1px solid #bae6fd !important;
+  border-radius: 4px !important;
+  padding: 2px 7px !important;
+  font-size: 11.5px !important;
+  font-weight: 500 !important;
+}
+
+.tribute-paper.style-simple .child-chip.female-chip {
+  background: #fff1f2 !important;
+  color: #be123c !important;
+  border: 1px solid #fecdd3 !important;
+  border-radius: 4px !important;
+  padding: 2px 7px !important;
+  font-size: 11.5px !important;
+  font-weight: 500 !important;
+}
+
+.tribute-paper.style-simple .child-ordinal {
+  color: #94a3b8 !important;
+  font-size: 10px !important;
+}
+
+.tribute-paper.style-simple .child-mother-tag {
+  background: #f8fafc !important;
+  color: #64748b !important;
+  border: 1px solid #e2e8f0 !important;
+  font-size: 9.5px !important;
+  border-radius: 3px !important;
+  padding: 0 4px !important;
+}
+
+.tribute-paper.style-simple .child-has-record {
+  color: #2563eb !important;
+}
+
+.tribute-paper.style-simple .entry-has-descendants {
+  color: #2563eb !important;
+  font-size: 10px !important;
+}
+
+.tribute-paper.style-simple .tribute-branch-divider {
+  background: #f8fafc !important;
+  border: 1px solid #e2e8f0 !important;
+  border-right: 4px solid #0f172a !important;
+  border-radius: 4px !important;
+  padding: 6px 12px !important;
+  margin: 14px 0 6px !important;
+}
+
+.tribute-paper.style-simple .branch-divider-title {
+  color: #0f172a !important;
+  font-size: 14px !important;
+  font-weight: 700 !important;
+}
+
+.tribute-paper.style-simple .branch-divider-desc {
+  color: #64748b !important;
+  font-size: 11px !important;
+}
+
+.tribute-paper.style-simple .tribute-cover-frame {
+  border: 1px solid #cbd5e1 !important;
+  border-radius: 8px !important;
+  background: #ffffff !important;
+  padding: 24px !important;
+}
+
+.tribute-paper.style-simple .tribute-cover-seal-row {
+  display: none !important;
+}
+
+.tribute-paper.style-simple .register-intro-note {
+  background: #f8fafc !important;
+  border: 1px solid #e2e8f0 !important;
+  color: #64748b !important;
+  font-style: normal !important;
+  padding: 6px 12px !important;
+  border-radius: 6px !important;
+  font-size: 11.5px !important;
+}
+
+.tribute-paper.style-simple .outline-tree-body {
+  font-family: 'Cairo', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+  font-size: 12px !important;
+}
+
+.tribute-paper.style-simple .outline-connector {
+  color: #94a3b8 !important;
+}
+
+.tribute-paper.style-simple .outline-name-male {
+  color: #0369a1 !important;
+}
+
+.tribute-paper.style-simple .outline-name-female {
+  color: #be123c !important;
+}
+
+.tribute-paper.style-simple .outline-wife {
+  background: #fdf2f8 !important;
+  color: #9d174d !important;
+  border: 1px solid #fbcfe8 !important;
+  border-radius: 3px !important;
+  padding: 0 4px !important;
+}
+
+/* Running headers in simple print */
+@media print {
+  .tribute-paper.style-simple .print-running-header {
+    color: #475569 !important;
+    border-bottom: 1px solid #cbd5e1 !important;
+    font-family: 'Cairo', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+    font-weight: 600 !important;
+    font-size: 8.5pt !important;
+  }
+
+  .tribute-paper.style-simple .print-running-footer {
+    color: #94a3b8 !important;
+    border-top: 1px solid #e2e8f0 !important;
+    font-family: 'Cairo', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+    font-size: 8pt !important;
+  }
+
+  .tribute-paper.style-simple .family-entry-card {
+    border: 1px solid #cbd5e1 !important;
+    border-right: 2.5pt solid #2563eb !important;
+    padding: 7px 10px 5px !important;
+    margin-bottom: 5px !important;
+  }
+
+  @page {
+    @bottom-center {
+      font-family: 'Cairo', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      font-size: 8.5pt;
+      color: #64748b;
+    }
+  }
+}
+
+/* ==========================================================================
+   Book-Style Genealogical Record (نسق كتاب الأنساب المبسط)
+   ========================================================================== */
+.tribute-paper.book-style {
+  background: #ffffff !important;
+  color: #111827 !important;
+  font-family: 'Amiri', 'Traditional Arabic', 'Scheherazade New', 'Cairo', serif !important;
+  max-width: 860px !important;
+  margin: 24px auto !important;
+  padding: 36px 44px !important;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.22) !important;
+  border-radius: 4px !important;
+  border: 1px solid #e2e8f0 !important;
+  box-sizing: border-box !important;
+  line-height: 1.8 !important;
+}
+
+.tribute-paper.book-style .print-table-shell {
+  width: 100% !important;
+  border-collapse: collapse !important;
+}
+
+.tribute-paper.book-style .print-table-shell td {
+  padding: 0 !important;
+  border: none !important;
+}
+
+.book-document-header {
+  text-align: center;
+  margin-bottom: 24px;
+  padding-bottom: 18px;
+  border-bottom: 2px solid #0f172a;
+}
+
+.book-basmala {
+  font-size: 16pt;
+  font-weight: 700;
+  margin: 0 0 10px;
+  color: #0f172a;
+}
+
+.book-main-title {
+  font-size: 22pt;
+  font-weight: 800;
+  margin: 0 0 8px;
+  color: #0f172a;
+}
+
+.book-progenitor {
+  font-size: 14pt;
+  margin: 0 0 6px;
+  color: #334155;
+}
+
+.book-update-date {
+  font-size: 11.5pt;
+  margin: 0 0 10px;
+  color: #64748b;
+  font-family: 'Amiri', 'Traditional Arabic', serif;
+}
+
+.book-stats-line {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 12px;
+  font-size: 11pt;
+  color: #64748b;
+  font-family: 'Cairo', sans-serif;
+  margin-top: 6px;
+  flex-wrap: wrap;
+}
+
+.dot-sep {
+  color: #cbd5e1;
+}
+
+.book-register-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin: 16px 0 24px;
+}
+
+.book-entry-card {
+  padding-bottom: 14px;
+  border-bottom: 1px dashed #cbd5e1;
+  page-break-inside: avoid;
+  break-inside: avoid;
+}
+
+.book-entry-card:last-child {
+  border-bottom: none;
+}
+
+.book-entry-header {
+  font-size: 13.5pt;
+  color: #0f172a;
+  line-height: 1.85;
+  margin-bottom: 4px;
+}
+
+.book-symbol {
+  font-weight: 800;
+  color: #0f172a;
+  font-size: 14pt;
+}
+
+.book-label-sons {
+  font-weight: 700;
+}
+
+.book-father-name {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.book-lineage-ancestors {
+  font-weight: 600;
+  color: #334155;
+}
+
+.book-ancestor-name {
+  color: #1e293b;
+}
+
+.book-colon {
+  font-weight: 700;
+}
+
+.book-no-sons-notice {
+  font-weight: 700;
+  color: #64748b;
+  font-style: italic;
+}
+
+.book-children-list {
+  list-style: none;
+  padding: 0;
+  margin: 4px 28px 6px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.book-child-item {
+  font-size: 12.5pt;
+  color: #0f172a;
+  line-height: 1.65;
+}
+
+.book-child-index {
+  font-weight: 700;
+  display: inline-block;
+  min-width: 22px;
+}
+
+.book-child-name {
+  font-weight: 600;
+}
+
+.book-child-mother {
+  color: #475569;
+  font-size: 11pt;
+  font-style: italic;
+}
+
+.book-daughters-section {
+  margin-top: 6px;
+}
+
+.book-daughters-header {
+  font-size: 13pt;
+  font-weight: 700;
+  color: #0f172a;
+  margin-bottom: 4px;
+}
+
+.book-dash {
+  font-weight: 800;
+}
+
+.book-label-daughters {
+  font-weight: 700;
+}
+
+.book-father-subname {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  font-weight: 700;
+}
+
+.book-wives-statement {
+  margin-top: 6px;
+  padding: 2px 0;
+}
+
+.book-mother-line {
+  font-size: 12pt;
+  color: #1e293b;
+  margin: 0;
+  line-height: 1.7;
+}
+
+.book-mother-line strong {
+  font-weight: 700;
+}
+
+.book-female-spouse-tag {
+  font-size: 1.05em;
+  color: #854d0e;
+  font-weight: 600;
+}
+
+.book-daughter-branch-note {
+  font-size: 0.88em;
+  color: #b45309;
+  font-weight: 500;
+  margin-right: 6px;
+}
+
+.female-branch-card {
+  border-right: 3px solid #f59e0b;
+  padding-right: 12px;
+}
+
+/* Daughters Branches Section (placed at the bottom of the PDF) */
+.book-daughters-branches-section {
+  margin-top: 36px;
+  padding-top: 24px;
+  border-top: 2px solid #0f172a;
+}
+
+.book-branches-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  margin: 12px 0 24px;
+}
+
+.book-branches-line {
+  flex: 1;
+  height: 1px;
+  background: #cbd5e1;
+}
+
+.book-branches-title {
+  font-family: 'Amiri', 'Traditional Arabic', serif;
+  font-size: 15pt;
+  font-weight: 800;
+  color: #0f172a;
+  margin: 0;
+  text-align: center;
+  padding: 0 12px;
+}
+
+.book-daughters-branches-list {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.book-branch-mother-tag {
+  color: #78350f;
+  font-weight: 600;
+  font-size: 0.95em;
+}
+
+@media print {
+  body {
+    background: #ffffff !important;
+  }
+  .print-page-wrapper {
+    background: #ffffff !important;
+  }
+  .print-toolbar-container,
+  .tribute-linked-trees-section,
+  .tribute-footer,
+  .print-running-tfoot {
+    display: none !important;
+  }
+  .tribute-paper.book-style {
+    box-shadow: none !important;
+    border: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    max-width: 100% !important;
+    width: 100% !important;
+  }
+  .book-daughters-branches-section {
+    page-break-before: auto !important;
+    break-before: auto !important;
+    margin-top: 24px !important;
+    padding-top: 18px !important;
+    border-top: 1.5pt solid #0f172a !important;
+  }
+  .book-branches-title {
+    font-size: 13pt !important;
+  }
+  .book-entry-card {
+    border-bottom: 1px solid #cbd5e1 !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+  .book-child-item {
+    font-size: 11pt !important;
+  }
+  .book-entry-header {
+    font-size: 12pt !important;
+  }
+  .book-daughters-header {
+    font-size: 11.5pt !important;
+  }
+  .book-mother-line {
+    font-size: 10.5pt !important;
+  }
+  .is-clickable {
+    cursor: default !important;
+    color: inherit !important;
   }
 }
 

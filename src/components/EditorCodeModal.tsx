@@ -72,9 +72,9 @@ export function EditorCodeModal({
           <span>🔒</span>
         </div>
 
-        <h3 className="editor-modal-title">رمز تعديل المشجر</h3>
+        <h3 className="editor-modal-title">رمز تعديل السجل</h3>
         <p className="editor-modal-sub">
-          أدخل رمز المرور للتمكن من تعديل وحفظ بيانات المشجر العائلي
+          أدخل رمز المرور للتمكن من تعديل وحفظ بيانات السجل العائلي
         </p>
 
         <form onSubmit={handleSubmit} className="editor-modal-form">

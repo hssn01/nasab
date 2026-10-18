@@ -121,17 +121,33 @@ function TreeNode({
               {person.wives.map((wife) => {
                 const linked = resolveWife(wife, rootPerson)
                 if (linked) {
+                  const displayId = linked.branchMeta?.originalId || linked.id
+                  const isCross = Boolean(
+                    wife.type === 'tree' &&
+                      (wife.treeId || (linked.branchMeta && linked.branchMeta.type !== 'main')),
+                  )
+                  const wifeTreeName = wife.type === 'tree' ? wife.treeName : undefined
+                  const treeLabel = wifeTreeName || linked.branchMeta?.treeName
                   return (
                     <span
                       key={wife.id}
-                      className="wife-link-tag"
+                      className={`wife-link-tag ${isCross ? 'wife-cross-tree-tag' : ''}`}
                       onClick={(e) => {
                         e.stopPropagation()
                         onSelect(linked)
                       }}
-                      title={`زوجة من نساء القبيلة: ${linked.name} (${linked.id})`}
+                      title={treeLabel ? `زوجة من (${treeLabel}): ${linked.name} (${displayId})` : `زوجة من السجل: ${linked.name} (${displayId})`}
                     >
-                      🔗 {linked.name} ({linked.id})
+                      {isCross ? '🌳' : '🔗'} {linked.name} ({displayId})
+                    </span>
+                  )
+                }
+                if (wife.type === 'tree') {
+                  const treeLabel = wife.treeName || 'شجرة أخرى'
+                  const displayName = wife.personName || wife.personId
+                  return (
+                    <span key={wife.id} className="wife-link-tag wife-cross-tree-tag" title={wife.lineageLabel || `زوجة من ${treeLabel}`}>
+                      🌳 {displayName} [{treeLabel}]
                     </span>
                   )
                 }

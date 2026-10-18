@@ -79,7 +79,7 @@ function getWifeBookDescription(wife: Wife, root: Person, connector = 'ولد'):
         const ancestors = chain.slice(1).join(` ${connector} `)
         return `${femaleName} بنت ${ancestors}`
       }
-      return `${person.name} (من المشجر)`
+      return `${person.name} (من السجل)`
     }
     return wife.personName || wife.personId
   }
@@ -399,8 +399,7 @@ export function PublicViewerPortal({
                   selectedTreeId!,
                   state.root,
                   state.root.name,
-                  validBranches,
-                  'محمد'
+                  validBranches
                 )
                 if (unified?.root) {
                   finalState = { ...state, root: unified.root }
@@ -627,7 +626,7 @@ export function PublicViewerPortal({
           style={{ marginTop: '16px' }}
           onClick={handleBackToCatalog}
         >
-          ← العودة إلى قائمة المشجرات
+          ← العودة إلى قائمة السجلات
         </button>
       </div>
     )
@@ -646,7 +645,7 @@ export function PublicViewerPortal({
             type="button"
             className="pv-back-to-catalog-btn"
             onClick={handleBackToCatalog}
-            title="الرجوع إلى قائمة المشجرات الرئيسية"
+            title="الرجوع إلى قائمة السجلات الرئيسية"
           >
             ← الرئيسية
           </button>
@@ -663,9 +662,9 @@ export function PublicViewerPortal({
             type="button"
             className={`pv-nav-tab ${activeTab === 'tree' ? 'active' : ''}`}
             onClick={() => setActiveTab('tree')}
-            title="المشجر البصري التفاعلي"
+            title="السجل البصري التفاعلي"
           >
-            🌳 المشجّر
+            🌳 السجل
           </button>
           <button
             type="button"
@@ -686,25 +685,58 @@ export function PublicViewerPortal({
         </nav>
 
         <div className="pv-header-actions">
-          <button
-            type="button"
-            className={`pv-btn-edit ${isEditMode ? 'active' : ''}`}
-            onClick={handleToggleEdit}
-            title={isEditMode ? 'إنهاء التعديل والعودة للقراءة' : 'تعديل الشجرة (يتطلب رمز المرور)'}
-          >
-            <span className="pv-edit-btn-icon">{isEditMode ? '✓' : '✏️'}</span>
-            <span>{isEditMode ? 'تم التعديل' : 'تعديل'}</span>
-          </button>
+          {isEditorUnlocked() && (
+            <button
+              type="button"
+              className={`pv-btn-edit ${isEditMode ? 'active' : ''}`}
+              onClick={handleToggleEdit}
+              title={isEditMode ? 'إنهاء التعديل والعودة للقراءة' : 'تعديل الشجرة (يتطلب رمز المرور)'}
+            >
+              <span className="pv-edit-btn-icon">{isEditMode ? '✓' : '✏️'}</span>
+              <span>{isEditMode ? 'تم التعديل' : 'تعديل'}</span>
+            </button>
+          )}
           <button
             type="button"
             className="pv-btn-share"
             onClick={() => handleShare(selectedPerson?.id)}
-            title="مشاركة رابط المشجر للزوار"
+            title="مشاركة رابط السجل للزوار"
           >
             🔗 مشاركة
           </button>
         </div>
       </header>
+
+      {/* ── Linked Branch Context Banner ── */}
+      {treeState.linkedFrom && (
+        <aside className="pv-branch-context-banner" aria-label="تنبيه الشجرة المرتبطة">
+          <div className="pv-branch-context-info">
+            <span className="pv-branch-icon">
+              {treeState.linkedFrom.type === 'daughter-branch' ? '🧬' : '🤝'}
+            </span>
+            <span className="pv-branch-context-text">
+              هذه الشجرة ({root.name ? `آل ${root.name}` : ''}) عبارة عن{' '}
+              <strong>
+                {treeState.linkedFrom.type === 'daughter-branch'
+                  ? 'فرع بنت متصل'
+                  : treeState.linkedFrom.type === 'brother-branch'
+                  ? 'فرع أخ متصل'
+                  : 'فرع متصل'}
+              </strong>{' '}
+              بـ <strong>«{treeState.linkedFrom.mainTreeName}»</strong>
+              {treeState.linkedFrom.personName ? ` (صلة/أم: ${treeState.linkedFrom.personName})` : ''}
+            </span>
+          </div>
+          <button
+            type="button"
+            className="pv-branch-goto-main-btn"
+            onClick={() => handleSelectTree(treeState.linkedFrom!.mainTreeId)}
+            title={`الانتقال إلى السجل الموحد الكامل لـ «${treeState.linkedFrom.mainTreeName}»`}
+          >
+            🌳 فتح السجل الرئيسي الكامل الموحد ←
+          </button>
+        </aside>
+      )}
 
       {/* ── Tab 1: Interactive Visual Tree ── */}
       {activeTab === 'tree' && (
@@ -837,8 +869,8 @@ function PublicTreesCatalog({ onSelectTree }: { onSelectTree: (id: string) => vo
 
       <main className="pv-catalog-container">
         <div className="pv-catalog-hero">
-          <div className="pv-catalog-hero-pill">🌳 المشجرات العائلية الموثقة</div>
-          <h1 className="pv-catalog-title">دليل مشجّرات الأنساب</h1>
+          <div className="pv-catalog-hero-pill">🌳 السجلات العائلية الموثقة</div>
+          <h1 className="pv-catalog-title">دليل سجلات الأنساب</h1>
           <p className="pv-catalog-desc">
             بوابة رقمية مخصصة للزوار وأفراد العائلة لاستعراض شجرات النسب، والبحث عن الأفراد وسلاسل
             القرابة، وتصدير السجلات العائلية الرسمية بصيغة PDF قابلة للطباعة.
@@ -859,11 +891,11 @@ function PublicTreesCatalog({ onSelectTree }: { onSelectTree: (id: string) => vo
         {loading ? (
           <div className="v-loading" style={{ height: '240px' }}>
             <div className="v-spinner" />
-            <p>جارٍ تحميل دليل المشجرات…</p>
+            <p>جارٍ تحميل دليل السجلات…</p>
           </div>
         ) : filtered.length === 0 ? (
           <div className="v-empty" style={{ margin: '40px auto', maxWidth: '400px' }}>
-            {filter ? 'لا توجد مشجرات مطابقة للبحث' : 'لا توجد مشجرات مسجلة حتى الآن'}
+            {filter ? 'لا توجد سجلات مطابقة للبحث' : 'لا توجد سجلات مسجلة حتى الآن'}
           </div>
         ) : (
           <div className="pv-catalog-grid">
@@ -910,7 +942,7 @@ function PublicTreesCatalog({ onSelectTree }: { onSelectTree: (id: string) => vo
                         onSelectTree(tree.id)
                       }}
                     >
-                      استعراض المشجر ←
+                      استعراض السجل ←
                     </button>
                   </div>
                 </article>
@@ -1072,13 +1104,6 @@ function StructuredFamilyRegisterPDFView({
     [familyEntries]
   )
 
-  const currentDate = useMemo(() => {
-    return new Intl.DateTimeFormat('ar-SA', {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-    }).format(new Date())
-  }, [])
 
   const maxDepth = useMemo(() => {
     let max = 0
@@ -1186,7 +1211,7 @@ function StructuredFamilyRegisterPDFView({
             <p className="pv-book-basmala">بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ</p>
             <p className="pv-book-salawat">صلّى الله على نبيّه الكريم</p>
             <h1 className="pv-book-main-title">
-              سجل ومشجّر نسب آل {treeName || root.name}
+              سجل نسب آل {treeName || root.name}
             </h1>
             <div className="pv-book-progenitor-badge">
               <span>الجد الأعلى والمؤسس:</span>
@@ -1355,7 +1380,7 @@ function StructuredFamilyRegisterPDFView({
               <header className="pv-doc-header">
                 <p className="pv-doc-basmala">بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ</p>
                 <div className="pv-doc-badge">وثيقة وسجل نسب عائلي رسمي</div>
-                <h1 className="pv-doc-title">مشجّر وسجل نسب آل {treeName || root.name}</h1>
+                <h1 className="pv-doc-title">سجل نسب آل {treeName || root.name}</h1>
                 <p className="pv-doc-progenitor">
                   الجد الأعلى والمؤسس: <strong>{root.name}</strong>
                 </p>
@@ -1485,7 +1510,7 @@ function StructuredFamilyRegisterPDFView({
 
                                       {/* Maternal Highlight if Daughter is Mother in Tree */}
                                       {maternal && maternal.length > 0 && (
-                                        <span className="pv-mother-callout" title="أم لأفراد في هذا المشجر">
+                                        <span className="pv-mother-callout" title="أم لأفراد في هذا السجل">
                                           🌸 أم لـ:{' '}
                                           {maternal
                                             .map(
@@ -1509,35 +1534,6 @@ function StructuredFamilyRegisterPDFView({
                   )
                 })}
               </section>
-
-              {/* Document Footer & Certification */}
-              <footer className="pv-doc-footer">
-                <div className="pv-cert-grid">
-                  <div className="pv-cert-box">
-                    <div className="pv-cert-box-title">✍️ إقرار وتوثيق النسب</div>
-                    <div className="pv-cert-line">المحرر: .......................................</div>
-                    <div className="pv-cert-line">التاريخ: {currentDate}</div>
-                    <div className="pv-cert-sig-line"></div>
-                    <div style={{ fontSize: '10px', color: '#8c7b64', marginTop: '4px' }}>
-                      التوقيع والختم
-                    </div>
-                  </div>
-
-                  <div className="pv-cert-box">
-                    <div className="pv-cert-box-title">📜 مصادقة عميد الأسرة</div>
-                    <div className="pv-cert-line">الاسم: .......................................</div>
-                    <div className="pv-cert-line">الصفة: عميد الأسرة / ممثل الفخذ</div>
-                    <div className="pv-cert-sig-line"></div>
-                    <div style={{ fontSize: '10px', color: '#8c7b64', marginTop: '4px' }}>
-                      المصادقة والاعتماد
-                    </div>
-                  </div>
-                </div>
-
-                <p className="pv-doc-closing">
-                  طُبع هذا السجل آلياً عبر نظام «نَسَب» لحفظ وتوثيق الأنساب العائلية
-                </p>
-              </footer>
             </div>
           </div>
         </article>
@@ -1976,7 +1972,7 @@ function PersonBottomSheet({
         {!isMale && maternal && maternal.length > 0 && (
           <div className="v-sheet-section" style={{ background: 'var(--accent-soft)', padding: '10px 14px', borderRadius: '8px' }}>
             <h3 className="v-sheet-label" style={{ color: 'var(--accent)', marginBottom: '4px' }}>
-              🌸 ذرية الأم في المشجر:
+              🌸 ذرية الأم في السجل:
             </h3>
             {maternal.map((m, i) => (
               <p key={i} style={{ margin: '3px 0', fontSize: '13px' }}>
@@ -2006,7 +2002,14 @@ function PersonBottomSheet({
               <div className="v-sheet-chips">
                 {person.wives.map((wife, i) => {
                   const linkedFemale = resolveWife(wife, root)
+                  const wifeTreeName = wife.type === 'tree' ? wife.treeName : undefined
+                  const wifeTreeId = wife.type === 'tree' ? wife.treeId : undefined
                   if (linkedFemale) {
+                    const treeLabel = wifeTreeName || linkedFemale.branchMeta?.treeName
+                    const isCross = Boolean(
+                      wifeTreeId ||
+                        (linkedFemale.branchMeta && linkedFemale.branchMeta.type !== 'main'),
+                    )
                     return (
                       <div key={i} className="v-chip-wrapper">
                         <button
@@ -2014,8 +2017,29 @@ function PersonBottomSheet({
                           className="v-chip v-chip-link"
                           onClick={() => onSelectPerson(linkedFemale)}
                         >
-                          🔗 {linkedFemale.name} (من المشجر)
+                          {isCross ? '🌳' : '🔗'} {linkedFemale.name}{treeLabel ? ` (${treeLabel})` : ' (من السجل)'}
                         </button>
+                        {isEditMode && onRemoveWife && (
+                          <button
+                            type="button"
+                            className="v-chip-del-btn"
+                            onClick={() => onRemoveWife(person.id, i)}
+                            title="حذف الزوجة"
+                          >
+                            ✕
+                          </button>
+                        )}
+                      </div>
+                    )
+                  }
+                  if (wife.type === 'tree') {
+                    const treeLabel = wife.treeName || 'شجرة أخرى'
+                    const displayName = wife.personName || wife.personId
+                    return (
+                      <div key={i} className="v-chip-wrapper">
+                        <span className="v-chip">
+                          🌳 {displayName} [{treeLabel}]
+                        </span>
                         {isEditMode && onRemoveWife && (
                           <button
                             type="button"

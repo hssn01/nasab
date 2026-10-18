@@ -294,7 +294,7 @@ export function ViewerMobileApp() {
             className={`v-nav-btn ${view === 'tree' ? 'active' : ''}`}
             onClick={() => setView('tree')}
           >
-            🌳 المشجّر
+            🌳 السجل
           </button>
           <button
             type="button"
@@ -768,7 +768,14 @@ function PersonBottomSheet({
             <div className="v-sheet-chips">
               {person.wives.map((wife, i) => {
                 const linkedFemale = resolveWife(wife, root)
+                const wifeTreeName = wife.type === 'tree' ? wife.treeName : undefined
+                const wifeTreeId = wife.type === 'tree' ? wife.treeId : undefined
                 if (linkedFemale) {
+                  const treeLabel = wifeTreeName || linkedFemale.branchMeta?.treeName
+                  const isCross = Boolean(
+                    wifeTreeId ||
+                      (linkedFemale.branchMeta && linkedFemale.branchMeta.type !== 'main'),
+                  )
                   return (
                     <button
                       key={i}
@@ -776,8 +783,17 @@ function PersonBottomSheet({
                       className="v-chip v-chip-link"
                       onClick={() => onSelectPerson(linkedFemale)}
                     >
-                      🔗 {linkedFemale.name} (من القبيلة)
+                      {isCross ? '🌳' : '🔗'} {linkedFemale.name}{treeLabel ? ` (${treeLabel})` : ' (من القبيلة)'}
                     </button>
+                  )
+                }
+                if (wife.type === 'tree') {
+                  const treeLabel = wife.treeName || 'شجرة أخرى'
+                  const displayName = wife.personName || wife.personId
+                  return (
+                    <span key={i} className="v-chip">
+                      🌳 {displayName} [{treeLabel}]
+                    </span>
                   )
                 }
                 return (

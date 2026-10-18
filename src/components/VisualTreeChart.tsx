@@ -1,5 +1,5 @@
 import { useMemo, useState, useRef, useEffect } from 'react'
-import type { Person, TreeMeta, Wife, TreeWife } from '../types'
+import type { Person, TreeMeta, Wife } from '../types'
 import {
   collectFemales,
   createExternalWife,
@@ -32,7 +32,7 @@ interface VisualTreeChartProps {
   onAddWife?: (personId: string, wife: Wife) => void
   onRemoveWife?: (personId: string, index: number) => void
   onLinkBranchForPerson?: (person: Person) => void
-  onRequestEditUnlock?: () => void
+  onOpenTree?: (treeId: string, personId?: string) => void
 }
 
 interface TreePosNode {
@@ -252,7 +252,7 @@ export function VisualTreeChart({
   onAddWife,
   onRemoveWife,
   onLinkBranchForPerson,
-  onRequestEditUnlock,
+  onOpenTree,
 }: VisualTreeChartProps) {
   const effectiveEditMode = isEditMode ?? isEditorUnlocked()
 
@@ -371,12 +371,19 @@ export function VisualTreeChart({
 
   const linkedFemaleIds = useMemo(() => {
     if (!actionPerson?.wives) return new Set<string>()
-    return new Set(
-      actionPerson.wives
-        .filter((w): w is TreeWife => w.type === 'tree' && Boolean(w.personId))
-        .map((w) => w.personId)
-    )
-  }, [actionPerson?.wives])
+    const set = new Set<string>()
+    for (const w of actionPerson.wives) {
+      if (w.type === 'tree') {
+        const resolved = resolveWife(w, root)
+        if (resolved) {
+          set.add(resolved.id)
+        } else if (!w.treeId || w.treeId === currentTreeId) {
+          if (w.personId) set.add(w.personId)
+        }
+      }
+    }
+    return set
+  }, [actionPerson?.wives, root, currentTreeId])
 
   const searchableTreeFemales = useMemo(() => {
     const list = collectFemales(root)
@@ -415,23 +422,37 @@ export function VisualTreeChart({
     if (!searchQuery.trim()) return []
     const q = searchable(searchQuery)
     if (!q) return []
-    const searchTerms = q.split(/\s+/).filter(Boolean)
+    const rawTokens = q.split(/\s+/).filter(Boolean)
+    // Filter out genealogy connectors unless they are the only search token
+    const filteredTokens = rawTokens.filter((t) => !['بن', 'ابن', 'بنت', 'ابنه', 'ولد', 'ال'].includes(t))
+    const searchTerms = filteredTokens.length > 0 ? filteredTokens : rawTokens
     const result: Person[] = []
     const seen = new Set<string>()
+
+    function termMatches(term: string, text: string): boolean {
+      if (text.includes(term)) return true
+      if (term.startsWith('ال') && term.length > 3) {
+        if (text.includes(term.slice(2))) return true
+      }
+      return false
+    }
 
     function search(person: Person, ancestors: string[]) {
       if (seen.has(person.id)) return
       seen.add(person.id)
 
-      const lineage = [person.name, ...ancestors].join(' ')
+      const lineageSimple = [person.name, ...ancestors].join(' ')
+      const lineageBin = [person.name, ...ancestors].join(' بن ')
+      const lineageWald = [person.name, ...ancestors].join(' ولد ')
+      const lineageBint = [person.name, ...ancestors].join(' بنت ')
       const wivesText = (person.wives || [])
         .map((w) => (w.type === 'tree' ? (w.personName || '') : (w.name || '')))
         .join(' ')
       const metaText = person.branchMeta?.personName || person.branchMeta?.treeName || ''
-      const rawText = `${person.name} ${person.id} ${person.branchMeta?.originalId || ''} ${metaText} ${lineage} ${wivesText}`
+      const rawText = `${person.name} ${person.id} ${person.branchMeta?.originalId || ''} ${metaText} ${lineageSimple} ${lineageBin} ${lineageWald} ${lineageBint} ${wivesText}`
       const text = searchable(rawText)
 
-      if (searchTerms.every((term) => text.includes(term))) {
+      if (searchTerms.every((term) => termMatches(term, text))) {
         result.push(person)
       }
 
@@ -443,7 +464,7 @@ export function VisualTreeChart({
           .join(' ')
         const spouseRawText = `${person.linkedSpouse.name} ${person.linkedSpouse.id} ${person.linkedSpouse.branchMeta?.originalId || ''} ${person.linkedSpouse.branchMeta?.personName || ''} زوج ${person.name} ${spouseWivesText}`
         const spouseText = searchable(spouseRawText)
-        if (searchTerms.every((term) => spouseText.includes(term))) {
+        if (searchTerms.every((term) => termMatches(term, spouseText))) {
           result.push(person.linkedSpouse)
         }
       }
@@ -931,11 +952,24 @@ export function VisualTreeChart({
                   <div className="visual-card-wives">
                     {node.person.wives.map((wife, idx) => {
                       const linkedFemale = resolveWife(wife, root)
+                      const wifeTreeName = wife.type === 'tree' ? wife.treeName : undefined
+                      const wifeTreeId = wife.type === 'tree' ? wife.treeId : undefined
                       if (linkedFemale) {
+                        const displayId = linkedFemale.branchMeta?.originalId || linkedFemale.id
+                        const treeLabel = wifeTreeName || linkedFemale.branchMeta?.treeName
+                        const isCrossTree = Boolean(
+                          wifeTreeId ||
+                            (linkedFemale.branchMeta && linkedFemale.branchMeta.type !== 'main'),
+                        )
+                        const icon = isCrossTree ? '🌳' : '🔗'
+                        const tooltip = treeLabel
+                          ? `زوجة من شجرة (${treeLabel}): ${linkedFemale.name} (${displayId}) - انقر للانتقال إليها`
+                          : `زوجة من السجل: ${linkedFemale.name} (${displayId}) - انقر للانتقال إليها`
+
                         return (
                           <span
                             key={idx}
-                            className="wife-link-tag"
+                            className={`wife-link-tag ${isCrossTree ? 'wife-cross-tree-tag' : ''}`}
                             onClick={(e) => {
                               e.stopPropagation()
                               const path = findPathToNode(root, linkedFemale.id)
@@ -946,12 +980,38 @@ export function VisualTreeChart({
                               })
                               onSelectPerson(linkedFemale)
                             }}
-                            title={`زوجة من نفس القبيلة: ${linkedFemale.name} (${linkedFemale.id}) - انقر للانتقال إليها`}
+                            title={tooltip}
                           >
-                            🔗 {linkedFemale.name} ({linkedFemale.id})
+                            {icon} {linkedFemale.name} ({displayId})
                           </span>
                         )
                       }
+
+                      if (wife.type === 'tree') {
+                        const treeLabel = wife.treeName || 'شجرة أخرى'
+                        const displayName = wife.personName || wife.personId
+                        const tooltip = wife.lineageLabel
+                          ? `${wife.lineageLabel} [من: ${treeLabel}]`
+                          : `زوجة من: ${treeLabel} (${wife.personId})`
+                        const canClick = Boolean(wife.treeId && onOpenTree)
+
+                        return (
+                          <span
+                            key={idx}
+                            className={`wife-link-tag wife-cross-tree-tag ${canClick ? 'is-clickable' : ''}`}
+                            onClick={(e) => {
+                              if (canClick && wife.treeId) {
+                                e.stopPropagation()
+                                onOpenTree!(wife.treeId, wife.personId)
+                              }
+                            }}
+                            title={canClick ? `${tooltip} - انقر لفتح شجرتها` : tooltip}
+                          >
+                            🌳 {displayName} [{treeLabel}]
+                          </span>
+                        )
+                      }
+
                       return <span key={idx}>⚭ {wifeShortLabel(wife, root)}</span>
                     })}
                   </div>
@@ -1158,7 +1218,7 @@ export function VisualTreeChart({
                         </button>
                       )
                     ) : (
-                      <span className="person-info-muted">الجد الأعلى للمشجر</span>
+                      <span className="person-info-muted">الجد الأعلى للسجل</span>
                     )}
                   </div>
 
@@ -1348,7 +1408,7 @@ export function VisualTreeChart({
                     🔍 إبراز سلسلة الأجداد في الشجرة
                   </button>
 
-                  {effectiveEditMode ? (
+                  {effectiveEditMode && (
                     <button
                       type="button"
                       className="modal-action-btn"
@@ -1356,23 +1416,12 @@ export function VisualTreeChart({
                     >
                       ⚙️ خيارات التعديل والإضافة
                     </button>
-                  ) : onRequestEditUnlock ? (
-                    <button
-                      type="button"
-                      className="modal-action-btn"
-                      onClick={() => {
-                        closeActionModal()
-                        onRequestEditUnlock()
-                      }}
-                    >
-                      ✏️ تعديل هذا الشخص (يتطلب الرمز)
-                    </button>
-                  ) : null}
+                  )}
                 </div>
               </div>
             )}
 
-            {modalTab === 'options' && (
+            {modalTab === 'options' && effectiveEditMode && (
               <div className="modal-options-list">
                 <button
                   type="button"
@@ -1619,12 +1668,21 @@ export function VisualTreeChart({
                     {actionPerson.wives.map((wife, idx) => {
                       const linked = resolveWife(wife, root)
                       const fullLineage = wifeLineageFullLabel(wife, root, 4)
+                      const isCross = Boolean(
+                        wife.type === 'tree' &&
+                          (wife.treeId || (linked?.branchMeta && linked.branchMeta.type !== 'main')),
+                      )
                       return (
                         <li key={idx} className="wife-manage-item">
                           <span>
                             {linked ? (
-                              <span className="wife-link-tag">
-                                🔗 {fullLineage || `${linked.name} (${linked.id})`}
+                              <span className={`wife-link-tag ${isCross ? 'wife-cross-tree-tag' : ''}`}>
+                                {isCross ? '🌳' : '🔗'}{' '}
+                                {fullLineage || `${linked.name} (${linked.branchMeta?.originalId || linked.id})`}
+                              </span>
+                            ) : wife.type === 'tree' ? (
+                              <span className="wife-link-tag wife-cross-tree-tag">
+                                🌳 {fullLineage || wifeShortLabel(wife, root)}
                               </span>
                             ) : (
                               `⚭ ${fullLineage || wifeShortLabel(wife, root)}`

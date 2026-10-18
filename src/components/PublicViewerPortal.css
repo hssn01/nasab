@@ -1637,4 +1637,62 @@
   cursor: pointer;
 }
 
+/* ── Linked Branch Context Banner ── */
+.pv-branch-context-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 10px 20px;
+  background: linear-gradient(90deg, rgba(16, 185, 129, 0.12), rgba(16, 185, 129, 0.04));
+  border-bottom: 1px solid rgba(16, 185, 129, 0.3);
+  font-size: 13.5px;
+  color: var(--text);
+  flex-wrap: wrap;
+  z-index: 40;
+}
+
+.pv-branch-context-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 260px;
+}
+
+.pv-branch-icon {
+  font-size: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.pv-branch-context-text {
+  line-height: 1.5;
+}
+
+.pv-branch-goto-main-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 16px;
+  background: #10b981;
+  color: #ffffff;
+  border: none;
+  border-radius: 9999px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 8px rgba(16, 185, 129, 0.25);
+}
+
+.pv-branch-goto-main-btn:hover {
+  background: #059669;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.35);
+}
+
+
 

@@ -20,6 +20,7 @@ import {
   exportOutline,
   findPath,
   findPerson,
+  cleanBranchOrTreeTitle,
 } from './treeUtils'
 import { useTreeBuilder, initialState } from './useTreeBuilder'
 import {
@@ -54,11 +55,18 @@ function formatDate(iso: string) {
   }).format(new Date(iso))
 }
 
-function getUrlParams(): { treeId: string | null; view: 'editor' | 'chart' | 'print' | 'viewer' | 'stepped-editor' } {
+function getUrlParams(): {
+  treeId: string | null
+  view: 'editor' | 'chart' | 'print' | 'viewer' | 'stepped-editor'
+  personId: string | null
+  unified: boolean
+} {
   const params = new URLSearchParams(window.location.search)
   const v = params.get('view')
   return {
-    treeId: params.get('t'),
+    treeId: params.get('t') || params.get('tree'),
+    personId: params.get('person'),
+    unified: params.get('unified') === '1' || params.get('unified') === 'true',
     view:
       v === 'viewer'
         ? 'viewer'
@@ -151,7 +159,7 @@ function EditorCodeModal({
 
         <h3 className="editor-modal-title">رمز الدخول للمحرر</h3>
         <p className="editor-modal-sub">
-          أدخل رمز المرور للتمكن من تعديل وحفظ بيانات المشجر العائلي
+          أدخل رمز المرور للتمكن من تعديل وحفظ بيانات السجل العائلي
         </p>
 
         <form onSubmit={handleSubmit} className="editor-modal-form">
@@ -235,7 +243,7 @@ function EditorGateScreen({
           <span>🔒</span>
         </div>
         <p className="eyebrow">نَسَب · بوابة المحرر</p>
-        <h1 className="editor-gate-title">محرر المشجر محمي برمز مرور</h1>
+        <h1 className="editor-gate-title">محرر السجل محمي برمز مرور</h1>
         <p className="editor-gate-desc">
           لتعديل بيانات الشجرة وإضافة الأفراد، يرجى إدخال رمز الدخول.
           إذا كنت ترغب فقط في استعراض الشجرة وقراءتها فلا حاجة لرمز.
@@ -306,7 +314,12 @@ export default function App() {
     return () => window.removeEventListener('popstate', handler)
   }, [])
 
-  function navigate(id: string | null, view: 'editor' | 'chart' | 'print' | 'viewer' | 'stepped-editor' = 'editor') {
+  function navigate(
+    id: string | null,
+    view: 'editor' | 'chart' | 'print' | 'viewer' | 'stepped-editor' = 'editor',
+    personId?: string | null,
+    unified?: boolean
+  ) {
     let url = window.location.pathname
     if (id) {
       url += `?t=${id}`
@@ -314,11 +327,18 @@ export default function App() {
       else if (view === 'print') url += `&view=print`
       else if (view === 'viewer') url += `&view=viewer`
       else if (view === 'stepped-editor') url += `&view=stepped-editor`
+      if (personId) url += `&person=${personId}`
+      if (unified) url += `&unified=1`
     } else if (view === 'viewer') {
       url += `?view=viewer`
     }
     history.pushState({}, '', url)
-    setRoute({ treeId: id, view: id ? view : (view === 'viewer' ? 'viewer' : 'editor') })
+    setRoute({
+      treeId: id,
+      view: id ? view : (view === 'viewer' ? 'viewer' : 'editor'),
+      personId: personId || null,
+      unified: !!unified,
+    })
   }
 
   if (route.view === 'viewer' && !route.treeId) {
@@ -338,6 +358,7 @@ export default function App() {
     return (
       <TreePrintPage
         treeId={route.treeId}
+        isUnified={route.unified}
         onGoToEditor={() => navigate(route.treeId, 'chart')}
         onGoToChart={() => navigate(route.treeId, 'chart')}
         onOpenTree={(id) => navigate(id, 'print')}
@@ -370,10 +391,13 @@ export default function App() {
   // Default view for any selected tree: TreeChartPage (with search, unified tree, and edit gate)
   return (
     <TreeChartPage
+      key={route.treeId}
       treeId={route.treeId}
+      initialPersonId={route.personId}
       onGoToEditor={() => navigate(route.treeId, 'stepped-editor')}
-      onGoToPrint={() => navigate(route.treeId, 'print')}
+      onGoToPrint={(unified) => navigate(route.treeId, 'print', null, unified)}
       onGoHome={() => navigate(null)}
+      onOpenTree={(id, personId) => navigate(id, 'chart', personId)}
     />
   )
 }
@@ -618,7 +642,7 @@ create trigger trees_updated_at
                 className="home-btn-create-header"
                 onClick={() => void handleCreate()}
                 disabled={creating}
-                title="إنشاء مشجر رئيسي جديد"
+                title="إنشاء سجل رئيسي جديد"
               >
                 <span>＋</span>
                 <span>{creating ? 'جارٍ الإنشاء…' : 'شجرة جديدة'}</span>
@@ -637,7 +661,7 @@ create trigger trees_updated_at
               type="button"
               className="home-auth-corner-btn locked"
               onClick={() => requireEditorAccess(() => {})}
-              title="دخول المحرر وتعديل المشجرات (رمز المرور)"
+              title="دخول المحرر وتعديل السجلات (رمز المرور)"
             >
               <span className="lock-icon">🔒</span>
               <span>تعديل</span>
@@ -662,7 +686,7 @@ create trigger trees_updated_at
         {migratingState && (
           <div className="migration-banner">
             <div>
-              <p className="migration-title">وُجد مشجر سابق محلّي</p>
+              <p className="migration-title">وُجد سجل سابق محلّي</p>
               <p className="migration-sub">
                 شجرة «{migratingState.root?.name}» موجودة على هذا الجهاز فقط — انقلها إلى السحابة.
               </p>
@@ -679,9 +703,9 @@ create trigger trees_updated_at
 
         {/* ── Minimalist, Elegant Header & Search ── */}
         <section className="home-intro-clean">
-          <h1 className="home-page-title">المشجّرات العائلية</h1>
+          <h1 className="home-page-title">السجلات العائلية</h1>
           <p className="home-page-sub">
-            سجل أنساب وذرية العائلة — اختر مشجراً لاستعراضه
+            سجل أنساب وذرية العائلة — اختر سجلاً لاستعراضه
           </p>
 
           {sessions.length > 0 && (
@@ -705,7 +729,7 @@ create trigger trees_updated_at
                 </button>
               ) : (
                 <span className="home-search-pill-count">
-                  {sessions.length} {sessions.length === 1 ? 'مشجر' : 'مشجرات'}
+                  {sessions.length} {sessions.length === 1 ? 'سجل' : 'سجلات'}
                 </span>
               )}
             </div>
@@ -716,7 +740,7 @@ create trigger trees_updated_at
         {loading ? (
           <div className="home-empty-card">
             <div className="spin" style={{ fontSize: '28px', marginBottom: '12px' }}>⟳</div>
-            <p>جارٍ تحميل المشجرات العائلية…</p>
+            <p>جارٍ تحميل السجلات العائلية…</p>
           </div>
         ) : sessions.length === 0 ? (
           <div className="home-empty-card">
@@ -928,7 +952,7 @@ create trigger trees_updated_at
                   {/* Clean bottom affordance */}
                   <div className="tree-card-footer">
                     <span className="tree-card-view-link">
-                      استعراض المشجر
+                      استعراض السجل
                       <span className="tree-card-view-arrow">←</span>
                     </span>
                   </div>
@@ -999,7 +1023,7 @@ create trigger trees_updated_at
         <footer className="home-footer-hint">
           {isOffline
             ? '💡 يمكنك استعراض وتعديل الجلسات المحملة بالكامل بدون إنترنت، وستُرفع تلقائياً فور اتصالك.'
-            : '💡 المشجرات متاحة للجميع للاستعراض والقراءة، بينما التعديل محمي برمز مرور العائلة.'}
+            : '💡 السجلات متاحة للجميع للاستعراض والقراءة، بينما التعديل محمي برمز مرور العائلة.'}
         </footer>
       </div>
 
@@ -1037,22 +1061,27 @@ create trigger trees_updated_at
 
 function TreeChartPage({
   treeId,
+  initialPersonId,
   onGoToEditor,
   onGoToPrint,
   onGoHome,
+  onOpenTree,
 }: {
   treeId: string
+  initialPersonId?: string | null
   onGoToEditor: () => void
-  onGoToPrint: () => void
+  onGoToPrint: (isUnified?: boolean) => void
   onGoHome: () => void
+  onOpenTree?: (id: string, personId?: string) => void
 }) {
   const tree = useTreeBuilder(treeId)
   const { sessions, refresh } = useSessionList()
-  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [selectedId, setSelectedId] = useState<string | null>(() => initialPersonId || null)
 
   const [showUnifiedView, setShowUnifiedView] = useState(true)
   const [commonFatherName] = useState(() => {
-    return localStorage.getItem(`commonFatherName_${treeId}`) || 'محمد'
+    const stored = localStorage.getItem(`commonFatherName_${treeId}`)
+    return stored?.trim() || ''
   })
   const [isLinkModalOpen, setIsLinkModalOpen] = useState(false)
   const [linkModalPerson, setLinkModalPerson] = useState<Person | null>(null)
@@ -1121,19 +1150,21 @@ function TreeChartPage({
       <main className="setup" dir="rtl">
         <div className="setup-card" style={{ textAlign: 'center' }}>
           <div style={{ fontSize: '40px', marginBottom: '12px' }}>🌳</div>
-          <p className="eyebrow">مشجر فارغ</p>
-          <h1 style={{ fontSize: '26px', marginBottom: '8px' }}>لم يتم إدخال بيانات هذا المشجر بعد</h1>
+          <p className="eyebrow">سجل فارغ</p>
+          <h1 style={{ fontSize: '26px', marginBottom: '8px' }}>لم يتم إدخال بيانات هذا السجل بعد</h1>
           <p className="lede" style={{ margin: '0 auto 20px', maxWidth: '40ch' }}>
-            هذا المشجر جديد ولا يحتوي على جد أساسي أو أفراد. يمكنك فتح المحرر لإضافة الجد الأول والبدء في بناء الشجرة.
+            هذا السجل جديد ولا يحتوي على جد أساسي أو أفراد. يمكنك فتح المحرر لإضافة الجد الأول والبدء في بناء الشجرة.
           </p>
           <div style={{ display: 'flex', gap: '10px', justifyContent: 'center', flexWrap: 'wrap' }}>
-            <button
-              type="button"
-              className="primary"
-              onClick={() => requireEditorAccess(onGoToEditor)}
-            >
-              📝 فتح المحرر للبدء بالإدخال
-            </button>
+            {isUnlocked && (
+              <button
+                type="button"
+                className="primary"
+                onClick={() => requireEditorAccess(onGoToEditor)}
+              >
+                📝 فتح المحرر للبدء بالإدخال
+              </button>
+            )}
             <button
               type="button"
               className="compact-button"
@@ -1174,8 +1205,8 @@ function TreeChartPage({
           <span>نَسَب · مخطط الشجرة</span>
         </div>
 
-        {/* Small corner edit button */}
-        {isUnlocked ? (
+        {/* Corner edit button — only visible when unlocked from the main page */}
+        {isUnlocked && (
           <button
             type="button"
             className="compact-button editor-auth-badge unlocked"
@@ -1186,15 +1217,6 @@ function TreeChartPage({
             title="وضع التعديل مفعل — انقر للقفل"
           >
             🔓 وضع التعديل (قفل)
-          </button>
-        ) : (
-          <button
-            type="button"
-            className="compact-button editor-auth-badge"
-            onClick={() => requireEditorAccess(() => {})}
-            title="تعديل الشجرة (يتطلب الرمز 2233)"
-          >
-            ✏️ تعديل
           </button>
         )}
 
@@ -1212,10 +1234,10 @@ function TreeChartPage({
         <button
           type="button"
           className="compact-button"
-          onClick={onGoToPrint}
-          title="عرض وطباعة وثيقة ومشجر النسب"
+          onClick={() => onGoToPrint(showUnifiedView)}
+          title="عرض وطباعة وثيقة وسجل النسب"
         >
-          🖨️ وثيقة للطباعة
+          🖨️ {showUnifiedView && hasConnectedBranches ? 'طباعة السجل الموحد' : 'وثيقة للطباعة'}
         </button>
 
         {hasConnectedBranches && (
@@ -1231,23 +1253,37 @@ function TreeChartPage({
 
         {currentTreeMeta?.linkedFrom ? (
           <div className="linked-tree-header-badge">
-            <span className="badge-icon">
-              {currentTreeMeta.linkedFrom.type === 'daughter-branch' ? '🧬' : '🤝'}
-            </span>
-            <span>
-              متصلة بـ «{currentTreeMeta.linkedFrom.mainTreeName}»
-              {currentTreeMeta.linkedFrom.personName ? ` (أم/صلة: ${currentTreeMeta.linkedFrom.personName})` : ''}
-            </span>
             <button
               type="button"
-              className="unlink-mini-btn"
-              onClick={() => requireEditorAccess(() => void handleLinkExistingTree(treeId, null))}
-              title="فك الارتباط لتصبح هذه الشجرة مستقلة ومنفصلة تماماً"
+              className="linked-tree-nav-btn"
+              onClick={() => {
+                if (onOpenTree && currentTreeMeta.linkedFrom) {
+                  onOpenTree(currentTreeMeta.linkedFrom.mainTreeId, currentTreeMeta.linkedFrom.personId)
+                }
+              }}
+              title={`الانتقال إلى السجل الرئيسي الكامل «${currentTreeMeta.linkedFrom.mainTreeName}»`}
             >
-              ✂️ فك الارتباط (جعلها مستقلة)
+              <span className="badge-icon">
+                {currentTreeMeta.linkedFrom.type === 'daughter-branch' ? '🧬' : '🤝'}
+              </span>
+              <span>
+                متصلة بـ «{currentTreeMeta.linkedFrom.mainTreeName}»
+                {currentTreeMeta.linkedFrom.personName ? ` (أم/صلة: ${currentTreeMeta.linkedFrom.personName})` : ''}
+              </span>
+              <span className="linked-tree-nav-arrow">← فتح السجل الكامل</span>
             </button>
+            {isUnlocked && (
+              <button
+                type="button"
+                className="unlink-mini-btn"
+                onClick={() => requireEditorAccess(() => void handleLinkExistingTree(treeId, null))}
+                title="فك الارتباط لتصبح هذه الشجرة مستقلة ومنفصلة تماماً"
+              >
+                ✂️ فك الارتباط
+              </button>
+            )}
           </div>
-        ) : (
+        ) : isUnlocked ? (
           <button
             type="button"
             className="compact-button"
@@ -1262,7 +1298,7 @@ function TreeChartPage({
           >
             🔗 ربط هذه الشجرة كفرع بشجرة أخرى
           </button>
-        )}
+        ) : null}
 
         {tree.isOffline ? (
           <span className="sync-indicator offline" role="status" title="حفظ محلي تلقائي بدون إنترنت">
@@ -1291,7 +1327,6 @@ function TreeChartPage({
           selectedId={selectedId}
           currentId={tree.currentPersonId}
           onSelectPerson={(person) => setSelectedId(person.id)}
-          onRequestEditUnlock={() => requireEditorAccess(() => {})}
           onGoToEditorForPerson={() => requireEditorAccess(() => onGoToEditor())}
           onRenamePerson={(personId, name) =>
             requireEditorAccess(() => tree.renamePerson(personId, name))
@@ -1315,6 +1350,7 @@ function TreeChartPage({
               setIsLinkModalOpen(true)
             })
           }}
+          onOpenTree={onOpenTree}
         />
       </main>
 
@@ -1358,12 +1394,14 @@ function TreeChartPage({
 
 function TreePrintPage({
   treeId,
+  isUnified: initialUnified,
   onGoToEditor,
   onGoToChart,
   onOpenTree,
   onGoHome,
 }: {
   treeId: string
+  isUnified?: boolean
   onGoToEditor: () => void
   onGoToChart: () => void
   onOpenTree?: (treeId: string) => void
@@ -1371,6 +1409,32 @@ function TreePrintPage({
 }) {
   const tree = useTreeBuilder(treeId)
   const { sessions } = useSessionList()
+  const currentTreeMeta = useMemo(() => sessions.find((s) => s.id === treeId) || null, [sessions, treeId])
+  const mainTreeName = currentTreeMeta?.name || tree.root?.name || 'الشجرة العائلية'
+
+  const commonFatherName = useMemo(() => {
+    return localStorage.getItem(`commonFatherName_${treeId}`)?.trim() || undefined
+  }, [treeId])
+
+  const { unifiedResult, hasConnectedBranches, branchCount } = useUnifiedTree({
+    mainTreeId: treeId,
+    mainRoot: tree.root ?? null,
+    mainTreeName,
+    sessions,
+    enabled: true,
+    commonFatherName,
+  })
+
+  const [printUnified, setPrintUnified] = useState(initialUnified ?? true)
+
+  useEffect(() => {
+    if (initialUnified !== undefined) {
+      setPrintUnified(initialUnified)
+    } else if (hasConnectedBranches) {
+      setPrintUnified(true)
+    }
+  }, [initialUnified, hasConnectedBranches])
+
   const linkedTrees = useMemo(
     () => sessions.filter((s) => s.linkedFrom?.mainTreeId === treeId),
     [sessions, treeId]
@@ -1390,12 +1454,34 @@ function TreePrintPage({
     )
   }
 
+  if (hasConnectedBranches && printUnified && !unifiedResult) {
+    return (
+      <main className="setup" dir="rtl">
+        <div className="setup-card" style={{ textAlign: 'center' }}>
+          <p className="eyebrow">نَسَب</p>
+          <h1>جارٍ دمج الأفرع المرتبطة بالسجل…</h1>
+          <div className="spin" style={{ fontSize: '28px', marginTop: '16px' }}>⟳</div>
+        </div>
+      </main>
+    )
+  }
+
+  const effectiveRoot = (printUnified && unifiedResult?.root) ? unifiedResult.root : tree.root
+  const cleanMainName = cleanBranchOrTreeTitle(mainTreeName)
+  const cleanRootName = cleanBranchOrTreeTitle(tree.root.name)
+  const effectiveTitle = printUnified && unifiedResult?.root
+    ? `السجل الموحد لنسب آل ${cleanMainName}`
+    : `سجل نسب آل ${cleanRootName}`
+
   return (
     <PrintableTributeView
-      root={tree.root}
-      treeName={`وثيقة نسب آل ${tree.root.name}`}
+      root={effectiveRoot}
+      treeName={effectiveTitle}
       linkedFrom={tree.linkedFrom}
-      linkedTrees={linkedTrees}
+      linkedTrees={printUnified ? undefined : linkedTrees}
+      isUnified={printUnified}
+      branchCount={branchCount}
+      onToggleUnified={hasConnectedBranches ? () => setPrintUnified((prev) => !prev) : undefined}
       onGoBack={onGoToEditor}
       onGoToChart={onGoToChart}
       onOpenTree={onOpenTree}
@@ -1731,7 +1817,11 @@ function TreeApp({
               <button
                 type="button"
                 className="unlink-mini-btn"
-                onClick={() => void handleLinkExistingTree(treeId, null)}
+                onClick={() => {
+                  if (window.confirm('هل تريد بالتأكيد فك ارتباط هذه الشجرة وجعلها شجرة مستقلة؟')) {
+                    void handleLinkExistingTree(treeId, null)
+                  }
+                }}
                 title="فك الارتباط لتصبح هذه الشجرة مستقلة ومنفصلة تماماً"
               >
                 ✂️ فك الارتباط (جعلها مستقلة)
@@ -1753,7 +1843,7 @@ function TreeApp({
           type="button"
           className="compact-button"
           onClick={onOpenPrint}
-          title="عرض وطباعة وثيقة ومشجر النسب"
+          title="عرض وطباعة وثيقة وسجل النسب"
         >
           🖨️ وثيقة للطباعة
         </button>
@@ -1998,7 +2088,7 @@ function TreeApp({
               <button
                 className="primary"
                 onClick={onOpenPrint}
-                title="عرض وطباعة وثيقة ومشجر النسب"
+                title="عرض وطباعة وثيقة وسجل النسب"
               >
                 🖨️ طباعة وثيقة النسب
               </button>

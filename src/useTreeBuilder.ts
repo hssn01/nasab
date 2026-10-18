@@ -115,9 +115,16 @@ export function useTreeBuilder(treeId: string) {
     }
   }, [treeId, state])
 
+  const isDirtyRef = useRef(false)
+  const setDirtyState = useCallback((updater: TreeState | ((prev: TreeState) => TreeState)) => {
+    isDirtyRef.current = true
+    setState(updater)
+  }, [])
+
   // ── Initial cloud fetch ──
   useEffect(() => {
     hasLoadedRef.current = false
+    isDirtyRef.current = false
     setIsSyncing(true)
 
     // Reset local state to cache (or empty) for the new treeId
@@ -131,18 +138,22 @@ export function useTreeBuilder(treeId: string) {
           setState(hydrated)
           setCachedState(treeId, hydrated)
           hasLoadedRef.current = true
+          isDirtyRef.current = false
         } else if (cloudState) {
           setState(cloudState)
           setCachedState(treeId, cloudState)
           hasLoadedRef.current = true
+          isDirtyRef.current = false
         } else if (cached && cached.root) {
           hasLoadedRef.current = true
+          isDirtyRef.current = false
         }
       })
       .catch((err) => {
         console.warn('[nasab] fetchTreeState error in useTreeBuilder:', err)
         if (cached && cached.root) {
           hasLoadedRef.current = true
+          isDirtyRef.current = false
         }
       })
       .finally(() => {
@@ -157,10 +168,11 @@ export function useTreeBuilder(treeId: string) {
 
   // ── Debounced save (saves to IndexedDB and pushes to cloud if online) ──
   useEffect(() => {
-    if (!hasLoadedRef.current) return
+    if (!hasLoadedRef.current || !isDirtyRef.current) return
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
     saveTimerRef.current = setTimeout(() => {
       void saveTreeState(treeId, state)
+      isDirtyRef.current = false
     }, 400)
     return () => {
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
@@ -179,7 +191,7 @@ export function useTreeBuilder(treeId: string) {
       children: [],
       wives: [],
     }
-    setState({
+    setDirtyState({
       ...initialState,
       root,
       phase: 'enter-children',
@@ -192,7 +204,7 @@ export function useTreeBuilder(treeId: string) {
     (name: string, gender: Gender) => {
       if (!state.root || !state.currentPersonId || !name.trim()) return
 
-      setState((prev) => {
+      setDirtyState((prev) => {
         if (!prev.root || !prev.currentPersonId) return prev
 
         const root = cloneRoot(prev.root)
@@ -235,7 +247,7 @@ export function useTreeBuilder(treeId: string) {
           ? nextMaleId(current.maleCounter)
           : nextFemaleId(current.femaleCounter + 1)
 
-      setState((prev) => {
+      setDirtyState((prev) => {
         if (!prev.root) return prev
         const root = cloneRoot(prev.root)
         const parent = findPerson(root, parentId)
@@ -361,7 +373,7 @@ export function useTreeBuilder(treeId: string) {
 
   const setChildren = useCallback(
     (personId: string, sonNames: string[], daughterNames: string[]) => {
-      setState((prev) =>
+      setDirtyState((prev) =>
         replaceChildren(prev, personId, sonNames, daughterNames),
       )
     },
@@ -370,7 +382,7 @@ export function useTreeBuilder(treeId: string) {
 
   const setChildrenAndContinue = useCallback(
     (sonNames: string[], daughterNames: string[]) => {
-      setState((prev) => {
+      setDirtyState((prev) => {
         if (!prev.root || !prev.currentPersonId) return prev
 
         const updated = replaceChildren(
@@ -488,11 +500,11 @@ export function useTreeBuilder(treeId: string) {
   }
 
   const setWives = useCallback((personId: string, wives: Wife[]) => {
-    setState((prev) => replaceWives(prev, personId, wives))
+    setDirtyState((prev) => replaceWives(prev, personId, wives))
   }, [])
 
   const setWivesAndContinue = useCallback((wives: Wife[]) => {
-    setState((prev) => {
+    setDirtyState((prev) => {
       if (!prev.root || !prev.currentPersonId) return prev
       const updated = replaceWives(prev, prev.currentPersonId, wives)
       const queueIndex = updated.malesQueue.indexOf(updated.currentPersonId!)
@@ -511,7 +523,7 @@ export function useTreeBuilder(treeId: string) {
 
   const setChildMother = useCallback(
     (childId: string, mother: string | null) => {
-      setState((prev) => {
+      setDirtyState((prev) => {
         if (!prev.root) return prev
         const root = cloneRoot(prev.root)
         const child = findPerson(root, childId)
@@ -525,7 +537,7 @@ export function useTreeBuilder(treeId: string) {
 
   const setChildrenMothers = useCallback(
     (fatherId: string, assignments: Record<string, string | null>) => {
-      setState((prev) => {
+      setDirtyState((prev) => {
         if (!prev.root) return prev
         const root = cloneRoot(prev.root)
         const father = findPerson(root, fatherId)
@@ -543,16 +555,16 @@ export function useTreeBuilder(treeId: string) {
   )
 
   const startWivesPhase = useCallback(() => {
-    setState((prev) => beginWivesPhase(prev))
+    setDirtyState((prev) => beginWivesPhase(prev))
   }, [])
 
   const startMothersPhase = useCallback(() => {
-    setState((prev) => beginMothersPhase(prev))
+    setDirtyState((prev) => beginMothersPhase(prev))
   }, [])
 
   const setMothersAndContinue = useCallback(
     (fatherId: string, assignments: Record<string, string | null>) => {
-      setState((prev) => {
+      setDirtyState((prev) => {
         if (!prev.root) return prev
         const root = cloneRoot(prev.root)
         const father = findPerson(root, fatherId)
@@ -582,7 +594,7 @@ export function useTreeBuilder(treeId: string) {
   )
 
   const skipMotherAndContinue = useCallback(() => {
-    setState((prev) => {
+    setDirtyState((prev) => {
       if (!prev.root || !prev.currentPersonId) return prev
       const queueIndex = prev.malesQueue.indexOf(prev.currentPersonId)
       const nextIndex =
@@ -599,7 +611,7 @@ export function useTreeBuilder(treeId: string) {
   }, [])
 
   const goToPhase = useCallback((targetPhase: Phase) => {
-    setState((prev) => {
+    setDirtyState((prev) => {
       if (!prev.root) return prev
       if (targetPhase === 'enter-children') {
         return {
@@ -677,7 +689,7 @@ export function useTreeBuilder(treeId: string) {
     const cleanName = name.trim()
     if (!cleanName) return
 
-    setState((prev) => {
+    setDirtyState((prev) => {
       if (!prev.root) return prev
       const root = cloneRoot(prev.root)
       const person = findPerson(root, personId)
@@ -688,7 +700,7 @@ export function useTreeBuilder(treeId: string) {
   }, [])
 
   const deletePerson = useCallback((personId: string) => {
-    setState((prev) => {
+    setDirtyState((prev) => {
       if (!prev.root || prev.root.id === personId) return prev
 
       const root = cloneRoot(prev.root)
@@ -791,7 +803,7 @@ export function useTreeBuilder(treeId: string) {
   /** Only the most recently added child of the current parent can be undone,
    * which keeps the global ID counters gap-free. */
   const undoLastChild = useCallback(() => {
-    setState((prev) => {
+    setDirtyState((prev) => {
       if (!prev.root || !prev.currentPersonId) return prev
 
       const root = cloneRoot(prev.root)
@@ -816,9 +828,9 @@ export function useTreeBuilder(treeId: string) {
     const next = advanceAfterDone(state.currentPersonId, state.root)
 
     if (next === 'phase2') {
-      setState((prev) => beginWivesPhase(prev))
+      setDirtyState((prev) => beginWivesPhase(prev))
     } else {
-      setState((prev) => ({
+      setDirtyState((prev) => ({
         ...prev,
         currentPersonId: next.id,
       }))
@@ -826,7 +838,7 @@ export function useTreeBuilder(treeId: string) {
   }, [state.root, state.currentPersonId])
 
   const addWifeToPerson = useCallback((personId: string, wife: Wife) => {
-    setState((prev) => {
+    setDirtyState((prev) => {
       if (!prev.root) return prev
       const root = cloneRoot(prev.root)
       const person = findPerson(root, personId)
@@ -835,7 +847,9 @@ export function useTreeBuilder(treeId: string) {
       if (wife.type === 'tree') {
         const alreadyLinked = person.wives.some(
           (existing) =>
-            existing.type === 'tree' && existing.personId === wife.personId,
+            existing.type === 'tree' &&
+            existing.personId === wife.personId &&
+            (existing.treeId ?? '') === (wife.treeId ?? ''),
         )
         if (alreadyLinked) return prev
       }
@@ -852,7 +866,7 @@ export function useTreeBuilder(treeId: string) {
 
   const removeWifeFromPerson = useCallback(
     (personId: string, index: number) => {
-      setState((prev) => {
+      setDirtyState((prev) => {
         if (!prev.root) return prev
         const root = cloneRoot(prev.root)
         const person = findPerson(root, personId)
@@ -888,7 +902,7 @@ export function useTreeBuilder(treeId: string) {
 
 
   const finishWives = useCallback(() => {
-    setState((prev) => {
+    setDirtyState((prev) => {
       const nextIndex = prev.currentMaleIndex + 1
       if (nextIndex >= prev.malesQueue.length) {
         return beginMothersPhase(prev)
@@ -949,7 +963,7 @@ export function useTreeBuilder(treeId: string) {
         ? imported.currentMaleIndex
         : 0
 
-    setState({
+    setDirtyState({
       root,
       phase,
       currentPersonId:

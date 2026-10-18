@@ -2260,6 +2260,21 @@ button.danger-text {
   text-decoration: underline;
 }
 
+.wife-cross-tree-tag {
+  color: #047857;
+  background: color-mix(in srgb, #059669 12%, transparent);
+  border-color: color-mix(in srgb, #059669 40%, transparent);
+}
+
+.wife-cross-tree-tag:hover {
+  border-color: #059669;
+  color: #065f46;
+}
+
+.wife-cross-tree-tag.is-clickable {
+  cursor: pointer;
+}
+
 .wives-manage-list {
   list-style: none;
   margin: 0;
@@ -5152,6 +5167,36 @@ button.phase-button.active {
   color: color-mix(in oklch, var(--success), black 35%);
   font-weight: 500;
   transition: background var(--duration, 180ms) ease;
+}
+
+.linked-tree-nav-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  border: none;
+  color: inherit;
+  font-family: inherit;
+  font-size: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 6px;
+  transition: all 0.15s ease;
+}
+
+.linked-tree-nav-btn:hover {
+  background: rgba(16, 185, 129, 0.15);
+  color: #065f46;
+}
+
+.linked-tree-nav-arrow {
+  font-size: 0.74rem;
+  background: rgba(16, 185, 129, 0.2);
+  padding: 1px 6px;
+  border-radius: 9999px;
+  color: #047857;
+  font-weight: 700;
 }
 
 .linked-tree-header-badge .badge-icon {

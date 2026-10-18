@@ -21,9 +21,21 @@ export function useSync() {
 
       for (const session of unsyncedSessions) {
         // Upsert session to Supabase 'trees' table (last-write-wins)
-        const stateToSave = session.linkedFrom
+        let stateToSave = session.linkedFrom
           ? { ...session.state, linkedFrom: session.linkedFrom }
           : session.state
+
+        // Guard: If local state lacks linkedFrom, check if Supabase already has one to avoid wiping it
+        if (!stateToSave?.linkedFrom) {
+          const { data: remoteTree } = await supabase
+            .from('trees')
+            .select('state')
+            .eq('id', session.id)
+            .single()
+          if (remoteTree?.state?.linkedFrom) {
+            stateToSave = { ...stateToSave, linkedFrom: remoteTree.state.linkedFrom }
+          }
+        }
 
         const { error: treeErr } = await supabase
           .from('trees')

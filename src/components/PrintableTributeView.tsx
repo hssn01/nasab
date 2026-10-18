@@ -1,12 +1,15 @@
 import { useState, useMemo } from 'react'
 import type { Person, TreeLink, TreeMeta, Wife } from '../types'
 import {
-  countPeople,
   findPath,
-  findPerson,
   motherDisplayLabel,
   resolveWife,
   wifeLineageFullLabel,
+  cleanBranchOrTreeTitle,
+  cleanLineageText,
+  displayPersonName,
+  getCachedTreeRoot,
+  getAllKnownCachedRoots,
 } from '../treeUtils'
 import '../PrintableTribute.css'
 
@@ -15,12 +18,15 @@ interface PrintableTributeViewProps {
   treeName?: string
   linkedFrom?: TreeLink
   linkedTrees?: TreeMeta[]
+  isUnified?: boolean
+  branchCount?: number
+  onToggleUnified?: () => void
   onGoBack: () => void
   onGoToChart?: () => void
   onOpenTree?: (treeId: string) => void
 }
 
-// A "family entry" = one male in DFS order, with full lineage breadcrumb
+// A "family entry" = one parent in DFS order, with full lineage breadcrumb
 interface FamilyEntry {
   person: Person
   lineage: Person[]   // ancestors from root down to this person (inclusive)
@@ -28,76 +34,139 @@ interface FamilyEntry {
   daughters: Person[]
   wives: Wife[]
   hasDescendants: boolean
+  isDaughterBranch?: boolean
+  isDaughterRoot?: boolean
+  husbandName?: string
+  daughterMotherName?: string
+  branchPaternalAncestors?: string[]
 }
 
-// Collect all males in DFS pre-order, preserving full lineage path
-function collectFamilyEntries(root: Person, initialAncestors: Person[] = []): FamilyEntry[] {
-  const entries: FamilyEntry[] = []
+interface BranchWalkContext {
+  daughterNode: Person
+  daughterAncestors: Person[]
+  husbandName?: string
+  paternalChain: string[]
+}
 
-  function walk(node: Person, ancestors: Person[]) {
+// Collect family heads, strictly separating paternal line from daughter branches
+function collectFamilyEntries(root: Person): {
+  paternalEntries: FamilyEntry[]
+  daughterEntries: FamilyEntry[]
+} {
+  const paternalEntries: FamilyEntry[] = []
+  const daughterEntries: FamilyEntry[] = []
+
+  function walk(node: Person, ancestors: Person[], ctx?: BranchWalkContext) {
     const path = [...ancestors, node]
+    const sons = node.children.filter((c) => c.gender === 'M')
+    const daughters = node.children.filter((c) => c.gender === 'F')
+    const hasChildren = sons.length > 0 || daughters.length > 0
+    const hasDescendants = sons.some((s) => s.children.length > 0 || s.wives.length > 0)
 
-    if (node.gender === 'M') {
-      const sons = node.children.filter((c) => c.gender === 'M')
-      const daughters = node.children.filter((c) => c.gender === 'F')
-      const hasDescendants = sons.some((s) => s.children.length > 0 || s.wives.length > 0)
-      entries.push({
-        person: node,
-        lineage: path,
-        sons,
-        daughters,
-        wives: node.wives || [],
-        hasDescendants,
-      })
-    }
+    if (!ctx) {
+      // Main paternal tree
+      if (node.gender === 'M') {
+        if (hasChildren) {
+          paternalEntries.push({
+            person: node,
+            lineage: path,
+            sons,
+            daughters,
+            wives: node.wives || [],
+            hasDescendants,
+          })
+        }
+        for (const child of node.children) {
+          walk(child, path, undefined)
+        }
+      } else {
+        // Female in main tree (daughter of a male ancestor)
+        // If she has children (attached daughter branch), she begins a daughter branch placed at the bottom
+        if (hasChildren || node.branchMeta?.type === 'daughter-branch' || node.linkedSpouse) {
+          let husband =
+            node.linkedSpouse?.name ||
+            (node.branchMeta?.personName && node.branchMeta.personName !== node.name
+              ? node.branchMeta.personName
+              : undefined)
+          if (!husband && node.branchMeta?.treeName) {
+            husband = cleanBranchOrTreeTitle(node.branchMeta.treeName)
+          }
+          if (husband) {
+            husband = cleanLineageText(cleanBranchOrTreeTitle(husband))
+          }
 
-    for (const child of node.children) {
-      walk(child, path)
+          daughterEntries.push({
+            person: node,
+            lineage: path,
+            sons,
+            daughters,
+            wives: [],
+            hasDescendants,
+            isDaughterBranch: true,
+            isDaughterRoot: true,
+            husbandName: husband,
+          })
+
+          const newCtx: BranchWalkContext = {
+            daughterNode: node,
+            daughterAncestors: path,
+            husbandName: husband,
+            paternalChain: husband ? [husband] : [],
+          }
+
+          for (const child of node.children) {
+            walk(child, path, newCtx)
+          }
+        }
+      }
+    } else {
+      // Inside daughter branch (bottom section of PDF)
+      if (hasChildren) {
+        const isMale = node.gender === 'M'
+        daughterEntries.push({
+          person: node,
+          lineage: path,
+          sons,
+          daughters,
+          wives: isMale ? node.wives || [] : [],
+          hasDescendants,
+          isDaughterBranch: true,
+          isDaughterRoot: false,
+          husbandName: ctx.husbandName,
+          daughterMotherName: ctx.daughterNode.name,
+          branchPaternalAncestors: [...ctx.paternalChain],
+        })
+      }
+
+      const nextCtx: BranchWalkContext = {
+        ...ctx,
+        paternalChain: node.gender === 'M' ? [...ctx.paternalChain, node.name] : ctx.paternalChain,
+      }
+
+      for (const child of node.children) {
+        walk(child, path, nextCtx)
+      }
     }
   }
 
-  walk(root, initialAncestors)
-  return entries
+  walk(root, [])
+  return { paternalEntries, daughterEntries }
 }
 
-// Build a compact text outline of the whole tree
-interface OutlineNode {
-  person: Person
-  depth: number
-  children: OutlineNode[]
-}
-
-function buildOutline(node: Person, depth: number): OutlineNode {
-  return {
-    person: node,
-    depth,
-    children: node.children.map((c) => buildOutline(c, depth + 1)),
-  }
-}
 
 export function PrintableTributeView({
   root,
-  linkedFrom,
-  linkedTrees,
+  treeName,
+  isUnified,
+  branchCount,
+  onToggleUnified,
   onGoBack,
   onGoToChart,
-  onOpenTree,
 }: PrintableTributeViewProps) {
-  const [orientation, setOrientation] = useState<'portrait' | 'landscape'>('portrait')
-  const [activeTab, setActiveTab] = useState<'register' | 'outline'>('register')
-  const [density, setDensity] = useState<'normal' | 'compact' | 'spacious'>('normal')
-  const [selectedBranchId, setSelectedBranchId] = useState<string | 'all'>('all')
-  const [separateCover, setSeparateCover] = useState(true)
-  const [showBranchDividers, setShowBranchDividers] = useState(true)
-  const [showIds, setShowIds] = useState(true)
-  const [showWives, setShowWives] = useState(true)
-  const [showDedication, setShowDedication] = useState(true)
-  const [showLeafEntries, setShowLeafEntries] = useState(true)
   const [inspectedPerson, setInspectedPerson] = useState<Person | null>(null)
 
   const handleScrollToFamily = (personId: string) => {
     setInspectedPerson(null)
-    setActiveTab('register')
     setTimeout(() => {
       const el = document.getElementById(`family-entry-${personId}`)
       if (el) {
@@ -108,56 +177,34 @@ export function PrintableTributeView({
     }, 100)
   }
 
-  // Direct male branches of root
-  const majorBranches = useMemo(() => {
-    return root.children.filter((c) => c.gender === 'M')
-  }, [root])
+  const { paternalEntries, daughterEntries } = useMemo(() => collectFamilyEntries(root), [root])
 
-  const activeBranch = useMemo(() => {
-    if (selectedBranchId === 'all') return null
-    return majorBranches.find((b) => b.id === selectedBranchId) || null
-  }, [selectedBranchId, majorBranches])
+  // Only parents who have children (sons or daughters) appear as sections
+  const visiblePaternalEntries = useMemo(() => {
+    return paternalEntries.filter((e) => e.sons.length > 0 || e.daughters.length > 0)
+  }, [paternalEntries])
 
-  const activeRoot = activeBranch || root
+  const visibleDaughterEntries = useMemo(() => {
+    return daughterEntries.filter((e) => e.sons.length > 0 || e.daughters.length > 0)
+  }, [daughterEntries])
 
-  const counts = useMemo(() => countPeople(activeRoot), [activeRoot])
-  const familyEntries = useMemo(() => {
-    if (activeBranch) {
-      return collectFamilyEntries(activeBranch, [root])
+  const currentDate = 'أغسطس 2026م'
+
+  const docTitle = useMemo(() => {
+    let name = cleanBranchOrTreeTitle(treeName || '')
+    if (!name || name === 'الأصل المشترك') {
+      name = cleanBranchOrTreeTitle(root.name)
     }
-    return collectFamilyEntries(root, [])
-  }, [activeBranch, root])
-
-  const outlineRoot = useMemo(() => buildOutline(activeRoot, 0), [activeRoot])
-  const maxDepth = useMemo(() => {
-    let max = 0
-    function walk(e: FamilyEntry) { if (e.lineage.length > max) max = e.lineage.length }
-    familyEntries.forEach(walk)
-    return max
-  }, [familyEntries])
-
-  const visibleEntries = useMemo(() =>
-    showLeafEntries
-      ? familyEntries
-      : familyEntries.filter((e) => e.sons.length > 0 || e.daughters.length > 0),
-    [familyEntries, showLeafEntries]
-  )
-
-  const currentDate = useMemo(() => {
-    return new Intl.DateTimeFormat('ar-SA', {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-    }).format(new Date())
-  }, [])
-
-  const docTitle = activeBranch
-    ? `مشجّر نسب آل ${activeBranch.name} بن ${root.name}`
-    : `مشجّر نسب آل ${root.name}`
+    name = cleanBranchOrTreeTitle(name) || 'العائلة'
+    if (isUnified) {
+      return `السجل الموحد لنسب آل ${name}`
+    }
+    return `سجل نسب آل ${name}`
+  }, [isUnified, treeName, root.name])
 
   return (
     <div className="print-page-wrapper" dir="rtl">
-      {/* ── Screen-Only Toolbar ── */}
+      {/* ── Screen-Only Minimal Toolbar (No Filters) ── */}
       <aside className="print-toolbar-container" aria-label="أدوات الطباعة">
         <div className="print-toolbar">
           <div className="print-toolbar-top-row">
@@ -170,449 +217,89 @@ export function PrintableTributeView({
                   🌳 مخطط الشجرة
                 </button>
               )}
-              <div className="print-view-selector" role="tablist">
+              {onToggleUnified && (
                 <button
                   type="button"
-                  className={`print-view-tab${activeTab === 'register' ? ' active' : ''}`}
-                  onClick={() => setActiveTab('register')}
-                  title="سجل عائلي مرتّب حسب الفروع — كل أب وأبناؤه في مكان واحد"
+                  className={`print-nav-btn${isUnified ? ' active' : ''}`}
+                  onClick={onToggleUnified}
+                  title="التبديل بين سجل الشجرة الأساسية وسجل الأفرع الموحدة الشامل"
+                  style={isUnified ? { background: '#2563eb', color: '#ffffff', borderColor: '#3b82f6' } : undefined}
                 >
-                  📜 السجل العائلي
+                  {isUnified ? `🌐 سجل موحد شامل (${branchCount || ''} فروع) ✓` : `🌐 دمج الفروع في سجل موحد (${branchCount || ''})`}
                 </button>
-                <button
-                  type="button"
-                  className={`print-view-tab${activeTab === 'outline' ? ' active' : ''}`}
-                  onClick={() => setActiveTab('outline')}
-                  title="مشجر نصي هرمي مضغوط"
-                >
-                  🌿 المشجر النصي
-                </button>
-              </div>
+              )}
             </div>
 
             <button type="button" className="print-action-primary" onClick={() => window.print()}>
               🖨️ طباعة / حفظ PDF
             </button>
           </div>
-
-          <div className="print-toolbar-options-row">
-            {/* Branch selector if root has multiple sons */}
-            {majorBranches.length > 1 && (
-              <label className="print-select-label" title="تصفية الطباعة لفرع محدد">
-                <span>الفرع:</span>
-                <select
-                  value={selectedBranchId}
-                  onChange={(e) => setSelectedBranchId(e.target.value)}
-                  className="print-toolbar-select"
-                >
-                  <option value="all">🌳 كافة الفروع ({majorBranches.length})</option>
-                  {majorBranches.map((b) => (
-                    <option key={b.id} value={b.id}>
-                      فرع {b.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            )}
-
-            {/* Print density */}
-            <label className="print-select-label" title="التحكم في كثافة الطباعة لتقليل عدد الصفحات">
-              <span>الكثافة:</span>
-              <select
-                value={density}
-                onChange={(e) => setDensity(e.target.value as any)}
-                className="print-toolbar-select"
-              >
-                <option value="normal">عادي (مريح)</option>
-                <option value="compact">مضغوط (توفير ورق)</option>
-                <option value="spacious">كبير (موسّع)</option>
-              </select>
-            </label>
-
-            <label className="print-toggle-label">
-              <input
-                type="checkbox"
-                checked={orientation === 'landscape'}
-                onChange={(e) => setOrientation(e.target.checked ? 'landscape' : 'portrait')}
-              />
-              أفقي (Landscape)
-            </label>
-            <label className="print-toggle-label" title="فصل الغلاف والإحصاءات في الصفحة الأولى للطباعة">
-              <input
-                type="checkbox"
-                checked={separateCover}
-                onChange={(e) => setSeparateCover(e.target.checked)}
-              />
-              غلاف مستقل (صفحة ١)
-            </label>
-            {activeTab === 'register' && selectedBranchId === 'all' && (
-              <label className="print-toggle-label" title="إظهار لافتات فواصل الفروع الرئيسية">
-                <input
-                  type="checkbox"
-                  checked={showBranchDividers}
-                  onChange={(e) => setShowBranchDividers(e.target.checked)}
-                />
-                فواصل الفروع
-              </label>
-            )}
-            <label className="print-toggle-label">
-              <input type="checkbox" checked={showIds} onChange={(e) => setShowIds(e.target.checked)} />
-              المعرفات
-            </label>
-            <label className="print-toggle-label">
-              <input type="checkbox" checked={showWives} onChange={(e) => setShowWives(e.target.checked)} />
-              الزوجات
-            </label>
-            <label className="print-toggle-label">
-              <input type="checkbox" checked={showDedication} onChange={(e) => setShowDedication(e.target.checked)} />
-              المقدمة
-            </label>
-            {activeTab === 'register' && (
-              <label className="print-toggle-label">
-                <input type="checkbox" checked={showLeafEntries} onChange={(e) => setShowLeafEntries(e.target.checked)} />
-                أصحاب العقب فقط
-              </label>
-            )}
-          </div>
         </div>
       </aside>
 
-      {/* ── Printable Document ── */}
+      {/* ── Printable Book-Style Document ── */}
       <main className="print-stage">
-        <article className={`tribute-paper ${orientation} density-${density}`}>
-          <div className="tribute-outer-border">
-            <span className="corner-ornament corner-top-right" aria-hidden="true">❖</span>
-            <span className="corner-ornament corner-top-left" aria-hidden="true">❖</span>
-            <span className="corner-ornament corner-bottom-right" aria-hidden="true">❖</span>
-            <span className="corner-ornament corner-bottom-left" aria-hidden="true">❖</span>
-
-            <div className="tribute-inner-border">
-              {/* ── Dedicated Cover Page (Page 1 in Print) ── */}
-              {separateCover && (
-                <>
-                  <section className="tribute-cover-page">
-                    <div className="tribute-cover-frame">
-                      <span className="corner-ornament corner-top-right" aria-hidden="true">❖</span>
-                      <span className="corner-ornament corner-top-left" aria-hidden="true">❖</span>
-                      <span className="corner-ornament corner-bottom-right" aria-hidden="true">❖</span>
-                      <span className="corner-ornament corner-bottom-left" aria-hidden="true">❖</span>
-
-                      <div className="tribute-cover-inner">
-                        <header className="tribute-header">
-                          <p className="tribute-basmala">بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ</p>
-                          <div className="tribute-title-badge">وثيقة ومشجّر نسب رسمي معتمد</div>
-                          <h1 className="tribute-main-title">{docTitle}</h1>
-                          <p className="tribute-progenitor">
-                            {activeBranch ? (
-                              <>
-                                رأس الفرع: <strong>{activeBranch.name}</strong> بن <strong>{root.name}</strong>
-                              </>
-                            ) : (
-                              <>
-                                الجد الأعلى: <strong>{root.name}</strong>
-                              </>
-                            )}
-                            {showIds && (
-                              <span className="family-person-id">{activeRoot.id}</span>
-                            )}
-                          </p>
-                          <div className="tribute-divider" aria-hidden="true">
-                            <span>✦ ✦ ✦</span>
-                          </div>
-                          <p className="tribute-lineage-text">
-                            «تعلّموا من أنسابكم ما تصلون به أرحامكم» — حُررت هذه الوثيقة حفظاً للصلات ورعايةً للأواصر
-                          </p>
-                        </header>
-
-                        {/* Linked Tree Context Banner (if branch) */}
-                        {linkedFrom && (
-                          <section className="tribute-linked-banner" aria-label="بيانات فرع النسب">
-                            <span className="tribute-linked-badge-icon">
-                              {linkedFrom.type === 'daughter-branch'
-                                ? '🧬'
-                                : linkedFrom.type === 'brother-branch'
-                                ? '🤝'
-                                : '🌿'}
-                            </span>
-                            <div className="tribute-linked-banner-content">
-                              <strong className="tribute-linked-title">
-                                {linkedFrom.type === 'daughter-branch'
-                                  ? `فرع بنت العائلة: ${linkedFrom.personName || 'إحدى البنات'}`
-                                  : linkedFrom.type === 'brother-branch'
-                                  ? `فرع أخ الجد الأكبر: ${linkedFrom.personName || 'أخ الجد'}`
-                                  : 'فرع عائلي مرتبط'}
-                              </strong>
-                              <span className="tribute-linked-sub">
-                                تتفرع وتتصل هذه الشجرة بالشجرة الرئيسية «{linkedFrom.mainTreeName}»
-                              </span>
-                              {linkedFrom.note && (
-                                <p className="tribute-linked-note">{linkedFrom.note}</p>
-                              )}
-                            </div>
-                          </section>
-                        )}
-
-                        {/* Dedication */}
-                        {showDedication && (
-                          <section className="tribute-dedication">
-                            الحمد لله الذي جعل الناس شعوباً وقبائل ليتعارفوا. هذه وثيقة سلالة{' '}
-                            <strong>{activeBranch ? activeBranch.name : root.name}</strong> وما
-                            تناسل منها عبر <strong>{maxDepth.toLocaleString('ar')} أجيال</strong>، صيانةً للحقوق ووصلاً لذوي القربى.
-                          </section>
-                        )}
-
-                        {/* Stats */}
-                        <section className="tribute-stats-bar" aria-label="إحصاءات النسب">
-                          <div>
-                            <p className="stat-item-label">الرجال</p>
-                            <p className="stat-item-val">{counts.males.toLocaleString('ar')}</p>
-                          </div>
-                          <div>
-                            <p className="stat-item-label">النساء</p>
-                            <p className="stat-item-val">{counts.females.toLocaleString('ar')}</p>
-                          </div>
-                          <div>
-                            <p className="stat-item-label">المجموع</p>
-                            <p className="stat-item-val">
-                              {(counts.males + counts.females).toLocaleString('ar')}
-                            </p>
-                          </div>
-                          <div>
-                            <p className="stat-item-label">عمق الأجيال</p>
-                            <p className="stat-item-val">{maxDepth.toLocaleString('ar')}</p>
-                          </div>
-                          <div>
-                            <p className="stat-item-label">تاريخ التوثيق</p>
-                            <p className="stat-item-val" style={{ fontSize: '13px' }}>
-                              {currentDate}
-                            </p>
-                          </div>
-                        </section>
-
-                        <div className="tribute-cover-seal-row">
-                          <span className="tribute-seal-stamp">⚜️ وثيقة نسب رسمية معتمدة</span>
-                          <span className="tribute-seal-text">
-                            طُبعت آلياً من نظام «نَسَب» لحفظ وتوثيق الأنساب
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  </section>
-                  <div className="cover-page-screen-break">
-                    <span>📄 بداية السجل العائلي (الصفحة الثانية في الطباعة)</span>
+        <article className="tribute-paper book-style">
+          <table className="print-table-shell">
+            <thead className="print-running-thead">
+              <tr>
+                <th>
+                  <div className="print-running-header">
+                    <span>{docTitle}</span>
+                    <span>الجد الأعلى: {displayPersonName(root.name)}</span>
+                    <span>آخر تحديث: {currentDate}</span>
                   </div>
-                </>
-              )}
+                </th>
+              </tr>
+            </thead>
+            <tbody className="print-table-body">
+              <tr>
+                <td>
+                  {/* Book Header */}
+                  <header className="book-document-header">
+                    <p className="book-basmala">بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ</p>
+                    <h1 className="book-main-title">{docTitle}</h1>
+                    <p className="book-progenitor">الجد الأعلى: <strong>{displayPersonName(root.name)}</strong></p>
+                    <p className="book-update-date">آخر تحديث للسجل: {currentDate}</p>
+                  </header>
 
-              {/* ── Multi-Page Running Table Shell ── */}
-              <table className="print-table-shell">
-                <thead className="print-running-thead">
-                  <tr>
-                    <th>
-                      <div className="print-running-header">
-                        <span>{docTitle}</span>
-                        <span>وثيقة حفظ الأنساب ورعاية الأرحام</span>
-                        <span>{currentDate}</span>
+                  {/* Main Paternal Families Register */}
+                  <section className="book-register-body">
+                    {visiblePaternalEntries.map((entry) => (
+                      <FamilyEntryCard
+                        key={entry.person.id}
+                        entry={entry}
+                        root={root}
+                        onSelectPerson={setInspectedPerson}
+                      />
+                    ))}
+                  </section>
+
+                  {/* Daughter Branches Section (placed at the bottom of the PDF) */}
+                  {visibleDaughterEntries.length > 0 && (
+                    <section className="book-daughters-branches-section" aria-label="أعقاب وفروع البنات">
+                      <div className="book-branches-section-header">
+                        <span className="book-branches-line"></span>
+                        <h2 className="book-branches-title">فروع وأعقاب بنات العائلة (الأسباط)</h2>
+                        <span className="book-branches-line"></span>
                       </div>
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="print-table-body">
-                  <tr>
-                    <td>
-                      {/* Inline Header (when separateCover is false) */}
-                      {!separateCover && (
-                        <>
-                          <header className="tribute-header">
-                            <p className="tribute-basmala">بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ</p>
-                            <div className="tribute-title-badge">وثيقة ومشجّر نسب رسمي</div>
-                            <h1 className="tribute-main-title">{docTitle}</h1>
-                            <p className="tribute-progenitor">
-                              الجد الأعلى: <strong>{activeBranch ? activeBranch.name : root.name}</strong>
-                              {showIds && <span className="family-person-id">{activeRoot.id}</span>}
-                            </p>
-                            <div className="tribute-divider" aria-hidden="true"><span>✦ ✦ ✦</span></div>
-                            <p className="tribute-lineage-text">
-                              «تعلّموا من أنسابكم ما تصلون به أرحامكم» — حُررت هذه الوثيقة حفظاً للصلات ورعايةً للأواصر
-                            </p>
-                          </header>
-
-                          {linkedFrom && (
-                            <section className="tribute-linked-banner" aria-label="بيانات فرع النسب">
-                              <span className="tribute-linked-badge-icon">
-                                {linkedFrom.type === 'daughter-branch'
-                                  ? '🧬'
-                                  : linkedFrom.type === 'brother-branch'
-                                  ? '🤝'
-                                  : '🌿'}
-                              </span>
-                              <div className="tribute-linked-banner-content">
-                                <strong className="tribute-linked-title">
-                                  {linkedFrom.type === 'daughter-branch'
-                                    ? `فرع بنت العائلة: ${linkedFrom.personName || 'إحدى البنات'}`
-                                    : linkedFrom.type === 'brother-branch'
-                                    ? `فرع أخ الجد الأكبر: ${linkedFrom.personName || 'أخ الجد'}`
-                                    : 'فرع عائلي مرتبط'}
-                                </strong>
-                                <span className="tribute-linked-sub">
-                                  تتفرع وتتصل هذه الشجرة بالشجرة الرئيسية «{linkedFrom.mainTreeName}»
-                                </span>
-                                {linkedFrom.note && (
-                                  <p className="tribute-linked-note">{linkedFrom.note}</p>
-                                )}
-                              </div>
-                            </section>
-                          )}
-
-                          {showDedication && (
-                            <section className="tribute-dedication">
-                              الحمد لله الذي جعل الناس شعوباً وقبائل ليتعارفوا. هذه وثيقة سلالة <strong>{activeBranch ? activeBranch.name : root.name}</strong> وما
-                              تناسل منها عبر <strong>{maxDepth.toLocaleString('ar')} أجيال</strong>، صيانةً للحقوق ووصلاً لذوي القربى.
-                            </section>
-                          )}
-
-                          <section className="tribute-stats-bar" aria-label="إحصاءات النسب">
-                            <div>
-                              <p className="stat-item-label">الرجال</p>
-                              <p className="stat-item-val">{counts.males.toLocaleString('ar')}</p>
-                            </div>
-                            <div>
-                              <p className="stat-item-label">النساء</p>
-                              <p className="stat-item-val">{counts.females.toLocaleString('ar')}</p>
-                            </div>
-                            <div>
-                              <p className="stat-item-label">المجموع</p>
-                              <p className="stat-item-val">{(counts.males + counts.females).toLocaleString('ar')}</p>
-                            </div>
-                            <div>
-                              <p className="stat-item-label">عمق الأجيال</p>
-                              <p className="stat-item-val">{maxDepth.toLocaleString('ar')}</p>
-                            </div>
-                            <div>
-                              <p className="stat-item-label">تاريخ التوثيق</p>
-                              <p className="stat-item-val" style={{ fontSize: '13px' }}>{currentDate}</p>
-                            </div>
-                          </section>
-                        </>
-                      )}
-
-                      {/* Main Content */}
-                      {activeTab === 'register' ? (
-                        <FamilyRegister
-                          entries={visibleEntries}
-                          showIds={showIds}
-                          showWives={showWives}
-                          showBranchDividers={showBranchDividers}
-                          selectedBranchId={selectedBranchId}
-                          root={root}
-                          onSelectPerson={setInspectedPerson}
-                        />
-                      ) : (
-                        <OutlineTree
-                          node={outlineRoot}
-                          showIds={showIds}
-                          showWives={showWives}
-                          root={root}
-                          onSelectPerson={setInspectedPerson}
-                        />
-                      )}
-
-                      {/* Linked Branches Section */}
-                      {linkedTrees && linkedTrees.length > 0 && (
-                        <section className="tribute-linked-trees-section" aria-label="الأفرع المرتبطة">
-                          <div className="tribute-divider" aria-hidden="true"><span>✦ ✦ ✦</span></div>
-                          <h2 className="tribute-section-heading">الأفرع والشجرات العائلية المرتبطة</h2>
-                          <p className="tribute-section-sub">
-                            شجرات وأفرع متصلة بهذا المشجر من جهة البنات أو الإخوة
-                          </p>
-                          <div className="tribute-linked-trees-grid">
-                            {linkedTrees.map((lt) => {
-                              const l = lt.linkedFrom
-                              return (
-                                <div key={lt.id} className="tribute-linked-card">
-                                  <div className="tribute-linked-card-header">
-                                    <span className="tribute-linked-pill">
-                                      {l?.type === 'daughter-branch'
-                                        ? '🧬 فرع بنت'
-                                        : l?.type === 'brother-branch'
-                                        ? '🤝 فرع أخ'
-                                        : '🌿 فرع مرتبط'}
-                                    </span>
-                                    <strong className="tribute-linked-name">{lt.name}</strong>
-                                  </div>
-                                  {l?.personName && (
-                                    <p className="tribute-linked-detail">
-                                      الصلة: <strong>{l.personName}</strong> {l.personId ? `(${l.personId})` : ''}
-                                    </p>
-                                  )}
-                                  {l?.note && <p className="tribute-linked-note">{l.note}</p>}
-                                  {onOpenTree && (
-                                    <button
-                                      type="button"
-                                      className="compact-button tribute-open-tree-btn"
-                                      onClick={() => onOpenTree(lt.id)}
-                                    >
-                                      عرض وثيقة هذا الفرع ←
-                                    </button>
-                                  )}
-                                </div>
-                              )
-                            })}
-                          </div>
-                        </section>
-                      )}
-
-                      {/* Footer Certification */}
-                      <footer className="tribute-footer">
-                        <div className="tribute-cert-grid">
-                          <div className="cert-box">
-                            <p className="cert-title">✍️ إقرار وتوثيق النسب</p>
-                            <div className="cert-field-row">
-                              <span>اسم المحرر:</span>
-                              <span>..........................................</span>
-                            </div>
-                            <div className="cert-field-row">
-                              <span>التاريخ:</span>
-                              <span>{currentDate}</span>
-                            </div>
-                            <div className="cert-signature-space"></div>
-                            <p style={{ fontSize: '11px', color: '#8c7b64', textAlign: 'center', marginTop: '4px' }}>التوقيع والختم</p>
-                          </div>
-                          <div className="cert-box">
-                            <p className="cert-title">📜 مراجعة وتصديق الأسرة</p>
-                            <div className="cert-field-row">
-                              <span>اسم المصادق:</span>
-                              <span>..........................................</span>
-                            </div>
-                            <div className="cert-field-row">
-                              <span>الصفة:</span>
-                              <span>عميد الأسرة / ممثل الفخذ</span>
-                            </div>
-                            <div className="cert-signature-space"></div>
-                            <p style={{ fontSize: '11px', color: '#8c7b64', textAlign: 'center', marginTop: '4px' }}>التوقيع والمصادقة</p>
-                          </div>
-                        </div>
-                        <p className="tribute-closing-note">
-                          طُبعت هذه الوثيقة آلياً من نظام «نَسَب» لحفظ وتوثيق الأنساب
-                        </p>
-                      </footer>
-                    </td>
-                  </tr>
-                </tbody>
-                <tfoot className="print-running-tfoot">
-                  <tr>
-                    <td>
-                      <div className="print-running-footer">
-                        <span>نظام «نَسَب» للتوثيق العائلي</span>
-                        <span>«تعلّموا من أنسابكم ما تصلون به أرحامكم»</span>
-                        <span>وثيقة رسمية معتمدة</span>
+                      <div className="book-daughters-branches-list">
+                        {visibleDaughterEntries.map((entry) => (
+                          <DaughterBranchFamilyCard
+                            key={entry.person.id}
+                            entry={entry}
+                            root={root}
+                            onSelectPerson={setInspectedPerson}
+                          />
+                        ))}
                       </div>
-                    </td>
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
-          </div>
+                    </section>
+                  )}
+
+                </td>
+              </tr>
+            </tbody>
+          </table>
         </article>
       </main>
 
@@ -632,229 +319,165 @@ export function PrintableTributeView({
 }
 
 /* =============================================================================
-   Family Register — DFS branch order, father + children together
+   Family Entry Card — Authentic book layout for paternal families
    ============================================================================= */
-function FamilyRegister({
-  entries,
-  showIds,
-  showWives,
-  showBranchDividers,
-  selectedBranchId,
-  root,
-  onSelectPerson,
-}: {
-  entries: FamilyEntry[]
-  showIds: boolean
-  showWives: boolean
-  showBranchDividers: boolean
-  selectedBranchId: string
-  root: Person
-  onSelectPerson: (p: Person) => void
-}) {
-  let lastBranchId: string | null = null
-
-  return (
-    <section className="tribute-register-body">
-      <p className="register-intro-note">
-        مرتَّب حسب الفروع والأعقاب — انقر على أي شخص لعرض بطاقة تفاصيله ونسبه الكامل
-      </p>
-      {entries.map((entry) => {
-        // Detect major branch switch (when entry has lineage[1])
-        const branchPerson = entry.lineage.length > 1 ? entry.lineage[1] : null
-        let renderBranchDivider = false
-
-        if (
-          showBranchDividers &&
-          selectedBranchId === 'all' &&
-          branchPerson &&
-          branchPerson.id !== lastBranchId
-        ) {
-          lastBranchId = branchPerson.id
-          renderBranchDivider = true
-        }
-
-        return (
-          <div
-            key={entry.person.id}
-            id={`family-entry-${entry.person.id}`}
-            className="family-entry-wrapper"
-          >
-            {renderBranchDivider && branchPerson && (
-              <div className="tribute-branch-divider">
-                <span className="branch-divider-icon">🌿</span>
-                <div className="branch-divider-text">
-                  <h3 className="branch-divider-title">
-                    فرع: {branchPerson.name} بن {root.name}
-                  </h3>
-                  <span className="branch-divider-desc">تفصيل ذريته وأعقابه المسجّلة</span>
-                </div>
-              </div>
-            )}
-            <FamilyEntryCard
-              entry={entry}
-              showIds={showIds}
-              showWives={showWives}
-              root={root}
-              onSelectPerson={onSelectPerson}
-            />
-          </div>
-        )
-      })}
-    </section>
-  )
-}
-
 function FamilyEntryCard({
   entry,
-  showIds,
-  showWives,
   root,
   onSelectPerson,
 }: {
   entry: FamilyEntry
-  showIds: boolean
-  showWives: boolean
   root: Person
   onSelectPerson: (p: Person) => void
 }) {
   const { person, lineage, sons, daughters, wives } = entry
-  // Lineage breadcrumb: ancestors only (not self), reversed for Arabic "بن" format
-  const ancestorPath = lineage.slice(0, -1) // all except self
-  const generation = lineage.length
+  // Lineage ancestors excluding self, reversed from immediate father up to root
+  const ancestorPath = lineage.slice(0, -1)
+  const hasMultipleWives = wives.length > 1
 
   return (
-    <div
-      className="family-entry-card"
-      style={{ '--entry-depth': Math.min(generation - 1, 6) } as React.CSSProperties}
-    >
-      {/* Lineage breadcrumb */}
-      {ancestorPath.length > 0 && (
-        <p className="entry-lineage-breadcrumb">
-          {[...ancestorPath].reverse().map((p, i) => (
-            <span key={p.id}>
-              {i > 0 && <span className="lineage-sep"> بن </span>}
-              <span
-                className="lineage-ancestor is-clickable"
-                onClick={() => onSelectPerson(p)}
-                title={`انقر لعرض بطاقة ${p.name}`}
-              >
-                {p.name}
+    <div className="book-entry-card" id={`family-entry-${person.id}`}>
+      {/* 1. Header: أولاد [الاسم] بن [الأجداد] : */}
+      <div className="book-entry-header">
+        <span className="book-label-sons">أولاد</span>{' '}
+        <strong
+          className="book-father-name is-clickable"
+          onClick={() => onSelectPerson(person)}
+          title={`انقر لعرض بطاقة ${person.name}`}
+        >
+          {displayPersonName(person.name)}
+        </strong>
+        {ancestorPath.length > 0 && (
+          <span className="book-lineage-ancestors">
+            {' '}بن{' '}
+            {[...ancestorPath].reverse().map((p, i) => (
+              <span key={p.id}>
+                {i > 0 && ' بن '}
+                <span
+                  className="book-ancestor-name is-clickable"
+                  onClick={() => onSelectPerson(p)}
+                  title={`انقر لعرض بطاقة ${p.name}`}
+                >
+                  {displayPersonName(p.name)}
+                </span>
               </span>
-              {showIds && <span className="entry-id-tag">{p.id}</span>}
-            </span>
-          ))}
-        </p>
-      )}
-
-      {/* Father header */}
-      <div
-        className="entry-father-header is-clickable"
-        onClick={() => onSelectPerson(person)}
-        title={`انقر لعرض بطاقة ${person.name}`}
-      >
-        <span className="entry-generation-badge">جيل {generation.toLocaleString('ar')}</span>
-        <span className="entry-father-name">{person.name}</span>
-        {showIds && <span className="family-person-id">{person.id}</span>}
-        {sons.length > 0 && (
-          <span className="entry-has-descendants" title="له ذرية مسجّلة">▾ له أعقاب</span>
+            ))}
+          </span>
+        )}
+        <span className="book-colon"> : </span>
+        {sons.length === 0 && (
+          <span className="book-no-sons-notice">بلا أولاد ذكور</span>
         )}
       </div>
 
-      {/* Wives row */}
-      {showWives && wives.length > 0 && (
-        <div className="entry-wives-row">
-          <span className="entry-wives-label">الزوجات ({wives.length.toLocaleString('ar')}):</span>
-          {wives.map((wife) => {
-            const fullLineage = wifeLineageFullLabel(wife, root, 4)
-            const linked =
-              resolveWife(wife, root) ||
-              (wife.type === 'tree' && wife.personId ? findPerson(root, wife.personId) : null)
+      {/* 2. Sons Numbered List */}
+      {sons.length > 0 && (
+        <ol className="book-children-list">
+          {sons.map((s, i) => {
+            const mLabel = hasMultipleWives ? motherDisplayLabel(s, person, root) : null
             return (
-              <span
-                key={wife.id}
-                className={`entry-wife-chip ${linked ? 'is-clickable' : ''}`}
-                onClick={linked ? () => onSelectPerson(linked) : undefined}
-                title={linked ? `انقر لعرض بطاقة ${linked.name}` : fullLineage}
-              >
-                ⚭ {fullLineage}
-                {showIds && wife.type === 'tree' && wife.personId && (
-                  <span className="entry-id-tag">{wife.personId}</span>
+              <li key={s.id} className="book-child-item">
+                <span className="book-child-index">{(i + 1).toLocaleString('ar')}- </span>
+                <span
+                  className="book-child-name is-clickable"
+                  onClick={() => onSelectPerson(s)}
+                  title={`انقر لعرض بطاقة ${s.name}`}
+                >
+                  {displayPersonName(s.name)}
+                </span>
+                {mLabel && (
+                  <span className="book-child-mother"> (أمه: {cleanLineageText(mLabel)})</span>
                 )}
-              </span>
+              </li>
             )
           })}
+        </ol>
+      )}
+
+      {/* 3. Daughters Header and Numbered List */}
+      {daughters.length > 0 && (
+        <div className="book-daughters-section">
+          <div className="book-daughters-header">
+            <span className="book-label-daughters">بنات</span>{' '}
+            <strong
+              className="book-father-subname is-clickable"
+              onClick={() => onSelectPerson(person)}
+              title={`انقر لعرض بطاقة ${person.name}`}
+            >
+              {displayPersonName(person.name)}
+            </strong>
+            <span className="book-colon"> :</span>
+          </div>
+          <ol className="book-children-list">
+            {daughters.map((d, i) => {
+              const mLabel = hasMultipleWives ? motherDisplayLabel(d, person, root) : null
+              return (
+                <li key={d.id} className="book-child-item">
+                  <span className="book-child-index">{(i + 1).toLocaleString('ar')}- </span>
+                  <span
+                    className="book-child-name is-clickable"
+                    onClick={() => onSelectPerson(d)}
+                    title={`انقر لعرض بطاقة ${d.name}`}
+                  >
+                    {displayPersonName(d.name)}
+                  </span>
+                  {mLabel && (
+                    <span className="book-child-mother"> (أمها: {cleanLineageText(mLabel)})</span>
+                  )}
+                </li>
+              )
+            })}
+          </ol>
         </div>
       )}
 
-      {/* Children */}
-      {sons.length === 0 && daughters.length === 0 ? (
-        <p className="entry-no-children">— لا عقب مسجّل في هذا الفرع</p>
-      ) : (
-        <div className="entry-children-row">
-          {/* Sons inline with ordinal numbers */}
-          {sons.length > 0 && (
-            <div className="entry-children-col sons-col">
-              <span className="col-label">الأبناء ({sons.length.toLocaleString('ar')}):</span>
-              <span className="children-inline-list">
-                {sons.map((s, i) => {
-                  const mLabel = motherDisplayLabel(s, person, root)
-                  return (
+      {/* 4. Mother / Wives statement */}
+      {wives.length > 0 && (
+        <div className="book-wives-statement">
+          {wives.length === 1 ? (
+            <p className="book-mother-line">
+              أما أم أولاد <strong>{displayPersonName(person.name)}</strong> فهي{' '}
+              <span className="book-wife-full">
+                {(() => {
+                  const wife = wives[0]
+                  const linked = resolveWife(wife, root)
+                  const label = wifeLineageFullLabel(wife, root, 6)
+                  return linked ? (
                     <span
-                      key={s.id}
-                      className="child-chip male-chip is-clickable"
-                      onClick={() => onSelectPerson(s)}
-                      title={`انقر لعرض بطاقة ${s.name}`}
+                      className="is-clickable"
+                      onClick={() => onSelectPerson(linked)}
+                      title={`انقر لعرض بطاقة ${linked.name}`}
                     >
-                      <span className="child-ordinal">{(i + 1).toLocaleString('ar')}.</span>
-                      <span className="child-name-text">{s.name}</span>
-                      {showIds && <span className="entry-id-tag">{s.id}</span>}
-                      {showWives && mLabel && (
-                        <span
-                          className="child-mother-tag"
-                          title={`الأم: ${mLabel}`}
-                        >
-                          أم: {mLabel}
-                        </span>
-                      )}
-                      {(s.children.length > 0 || s.wives.length > 0) && (
-                        <span className="child-has-record" title="له سجل في الصفحات التالية">↓</span>
-                      )}
+                      {label}
                     </span>
+                  ) : (
+                    label
                   )
-                })}
+                })()}
               </span>
-            </div>
-          )}
-          {/* Daughters */}
-          {daughters.length > 0 && (
-            <div className="entry-children-col daughters-col">
-              <span className="col-label">البنات ({daughters.length.toLocaleString('ar')}):</span>
-              <span className="children-inline-list">
-                {daughters.map((d, i) => {
-                  const mLabel = motherDisplayLabel(d, person, root)
-                  return (
+              .
+            </p>
+          ) : (
+            <p className="book-mother-line">
+              أما زوجات <strong>{displayPersonName(person.name)}</strong> فهن:{' '}
+              {wives.map((w, idx) => {
+                const linked = resolveWife(w, root)
+                const label = wifeLineageFullLabel(w, root, 6)
+                return (
+                  <span key={w.id}>
+                    {idx > 0 && '، و'}
                     <span
-                      key={d.id}
-                      className="child-chip female-chip is-clickable"
-                      onClick={() => onSelectPerson(d)}
-                      title={`انقر لعرض بطاقة ${d.name}`}
+                      className={linked ? 'is-clickable' : ''}
+                      onClick={linked ? () => onSelectPerson(linked) : undefined}
+                      title={linked ? `انقر لعرض بطاقة ${linked.name}` : label}
                     >
-                      <span className="child-ordinal">{(i + 1).toLocaleString('ar')}.</span>
-                      <span className="child-name-text">{d.name}</span>
-                      {showIds && <span className="entry-id-tag">{d.id}</span>}
-                      {showWives && mLabel && (
-                        <span
-                          className="child-mother-tag"
-                          title={`الأم: ${mLabel}`}
-                        >
-                          أم: {mLabel}
-                        </span>
-                      )}
+                      {label}
                     </span>
-                  )
-                })}
-              </span>
-            </div>
+                  </span>
+                )
+              })}
+              .
+            </p>
           )}
         </div>
       )}
@@ -863,101 +486,237 @@ function FamilyEntryCard({
 }
 
 /* =============================================================================
-   Outline Tree — compact hierarchical text tree suitable for print
+   Daughter Branch Family Card — Genealogical cards placed at the bottom of the PDF
    ============================================================================= */
-function OutlineTree({
-  node,
-  showIds,
-  showWives,
+function DaughterBranchFamilyCard({
+  entry,
   root,
   onSelectPerson,
 }: {
-  node: OutlineNode
-  showIds: boolean
-  showWives: boolean
+  entry: FamilyEntry
   root: Person
   onSelectPerson: (p: Person) => void
 }) {
-  return (
-    <section className="outline-tree-body">
-      <p className="register-intro-note">
-        مشجر هرمي نصي مضغوط — انقر على أي شخص لعرض تفاصيله ونسبه الكامل
-      </p>
-      <OutlineNode
-        node={node}
-        showIds={showIds}
-        showWives={showWives}
-        root={root}
-        onSelectPerson={onSelectPerson}
-      />
-    </section>
-  )
-}
+  const {
+    person,
+    lineage,
+    sons,
+    daughters,
+    wives,
+    isDaughterRoot,
+    husbandName,
+    daughterMotherName,
+    branchPaternalAncestors,
+  } = entry
 
-function OutlineNode({
-  node,
-  showIds,
-  showWives,
-  root,
-  onSelectPerson,
-}: {
-  node: OutlineNode
-  showIds: boolean
-  showWives: boolean
-  root: Person
-  onSelectPerson: (p: Person) => void
-}) {
-  const isMale = node.person.gender === 'M'
-  const hasChildren = node.children.length > 0
-  const depth = node.depth
+  // Lineage ancestors excluding self
+  const ancestorPath = lineage.slice(0, -1)
+  const isFemale = person.gender === 'F' || !!isDaughterRoot
+  const hasMultipleWives = !isFemale && wives.length > 1
+  const cleanHusband = husbandName ? cleanLineageText(cleanBranchOrTreeTitle(husbandName)) : undefined
 
   return (
-    <div className={`outline-node depth-${Math.min(depth, 8)}`}>
-      <div
-        className={`outline-person ${isMale ? 'outline-male' : 'outline-female'} is-clickable`}
-        onClick={() => onSelectPerson(node.person)}
-        title={`انقر لعرض بطاقة ${node.person.name}`}
-      >
-        {/* Depth connector indicator */}
-        {depth > 0 && (
-          <span className="outline-connector" aria-hidden="true">
-            {'└─'.padStart(depth * 2 + 2, '│ ')}
-          </span>
+    <div className={`book-entry-card${isFemale ? ' female-branch-card' : ''}`} id={`family-entry-${person.id}`}>
+      {/* 1. Header */}
+      <div className="book-entry-header">
+        {isDaughterRoot ? (
+          <>
+            <span className="book-label-sons">عقب</span>{' '}
+            <strong
+              className="book-father-name is-clickable"
+              onClick={() => onSelectPerson(person)}
+              title={`انقر لعرض بطاقة ${person.name}`}
+            >
+              {displayPersonName(person.name)}
+            </strong>
+            {ancestorPath.length > 0 && (
+              <span className="book-lineage-ancestors">
+                {' '}بنت{' '}
+                {[...ancestorPath].reverse().map((p, i) => (
+                  <span key={p.id}>
+                    {i > 0 && ' بن '}
+                    <span
+                      className="book-ancestor-name is-clickable"
+                      onClick={() => onSelectPerson(p)}
+                      title={`انقر لعرض بطاقة ${p.name}`}
+                    >
+                      {displayPersonName(p.name)}
+                    </span>
+                  </span>
+                ))}
+              </span>
+            )}
+            {cleanHusband && (
+              <span className="book-female-spouse-tag"> (زوجة {cleanHusband})</span>
+            )}
+          </>
+        ) : isFemale ? (
+          <>
+            <span className="book-label-sons">عقب</span>{' '}
+            <strong
+              className="book-father-name is-clickable"
+              onClick={() => onSelectPerson(person)}
+              title={`انقر لعرض بطاقة ${person.name}`}
+            >
+              {displayPersonName(person.name)}
+            </strong>
+            {branchPaternalAncestors && branchPaternalAncestors.length > 0 && (
+              <span className="book-lineage-ancestors">
+                {' '}بنت{' '}
+                {[...branchPaternalAncestors].reverse().map(displayPersonName).join(' بن ')}
+              </span>
+            )}
+            {cleanHusband && (
+              <span className="book-female-spouse-tag"> (زوجة {cleanHusband})</span>
+            )}
+          </>
+        ) : (
+          <>
+            <span className="book-label-sons">أولاد</span>{' '}
+            <strong
+              className="book-father-name is-clickable"
+              onClick={() => onSelectPerson(person)}
+              title={`انقر لعرض بطاقة ${person.name}`}
+            >
+              {displayPersonName(person.name)}
+            </strong>
+            {branchPaternalAncestors && branchPaternalAncestors.length > 0 && (
+              <span className="book-lineage-ancestors">
+                {' '}بن{' '}
+                {[...branchPaternalAncestors].reverse().map(displayPersonName).join(' بن ')}
+              </span>
+            )}
+            {daughterMotherName && branchPaternalAncestors && branchPaternalAncestors.length <= 1 && (
+              <span className="book-branch-mother-tag"> (أمه: {displayPersonName(daughterMotherName)})</span>
+            )}
+          </>
         )}
-        <span className={`outline-name ${isMale ? 'outline-name-male' : 'outline-name-female'}`}>
-          {node.person.name}
-        </span>
-        {showIds && <span className="outline-id">{node.person.id}</span>}
-        {showWives && isMale && node.person.wives && node.person.wives.length > 0 && (
-          <span className="outline-wives">
-            {node.person.wives.map((wife) => {
-              const fullLabel = wifeLineageFullLabel(wife, root, 4)
-              return (
-                <span key={wife.id} className="outline-wife">
-                  ⚭ {fullLabel}
-                </span>
-              )
-            })}
-          </span>
-        )}
-        {hasChildren && (
-          <span className="outline-child-count">[{node.children.length}]</span>
+        <span className="book-colon"> : </span>
+        {sons.length === 0 && (
+          <span className="book-no-sons-notice">بلا أولاد ذكور</span>
         )}
       </div>
 
-      {hasChildren && (
-        <div className="outline-children">
-          {node.children.map((child) => (
-            <OutlineNode
-              key={child.person.id}
-              node={child}
-              showIds={showIds}
-              showWives={showWives}
-              root={root}
-              onSelectPerson={onSelectPerson}
-            />
-          ))}
+      {/* 2. Sons Numbered List */}
+      {sons.length > 0 && (
+        <ol className="book-children-list">
+          {sons.map((s, i) => {
+            const mLabel = hasMultipleWives ? motherDisplayLabel(s, person, root) : null
+            return (
+              <li key={s.id} className="book-child-item">
+                <span className="book-child-index">{(i + 1).toLocaleString('ar')}- </span>
+                <span
+                  className="book-child-name is-clickable"
+                  onClick={() => onSelectPerson(s)}
+                  title={`انقر لعرض بطاقة ${s.name}`}
+                >
+                  {displayPersonName(s.name)}
+                </span>
+                {mLabel && (
+                  <span className="book-child-mother"> (أمه: {cleanLineageText(mLabel)})</span>
+                )}
+              </li>
+            )
+          })}
+        </ol>
+      )}
+
+      {/* 3. Daughters Header and Numbered List */}
+      {daughters.length > 0 && (
+        <div className="book-daughters-section">
+          <div className="book-daughters-header">
+            <span className="book-label-daughters">بنات</span>{' '}
+            <strong
+              className="book-father-subname is-clickable"
+              onClick={() => onSelectPerson(person)}
+              title={`انقر لعرض بطاقة ${person.name}`}
+            >
+              {displayPersonName(person.name)}
+            </strong>
+            <span className="book-colon"> :</span>
+          </div>
+          <ol className="book-children-list">
+            {daughters.map((d, i) => {
+              const mLabel = hasMultipleWives ? motherDisplayLabel(d, person, root) : null
+              return (
+                <li key={d.id} className="book-child-item">
+                  <span className="book-child-index">{(i + 1).toLocaleString('ar')}- </span>
+                  <span
+                    className="book-child-name is-clickable"
+                    onClick={() => onSelectPerson(d)}
+                    title={`انقر لعرض بطاقة ${d.name}`}
+                  >
+                    {displayPersonName(d.name)}
+                  </span>
+                  {mLabel && (
+                    <span className="book-child-mother"> (أمها: {cleanLineageText(mLabel)})</span>
+                  )}
+                </li>
+              )
+            })}
+          </ol>
         </div>
+      )}
+
+      {/* 4. Mother / Wives statement */}
+      {isFemale ? (
+        cleanHusband && (
+          <div className="book-wives-statement">
+            <p className="book-mother-line">
+              أما والدهم فهو <strong>{cleanHusband}</strong>.
+            </p>
+          </div>
+        )
+      ) : (
+        wives.length > 0 && (
+          <div className="book-wives-statement">
+            {wives.length === 1 ? (
+              <p className="book-mother-line">
+                أما أم أولاد <strong>{displayPersonName(person.name)}</strong> فهي{' '}
+                <span className="book-wife-full">
+                  {(() => {
+                    const wife = wives[0]
+                    const linked = resolveWife(wife, root)
+                    const label = wifeLineageFullLabel(wife, root, 6)
+                    return linked ? (
+                      <span
+                        className="is-clickable"
+                        onClick={() => onSelectPerson(linked)}
+                        title={`انقر لعرض بطاقة ${linked.name}`}
+                      >
+                        {label}
+                      </span>
+                    ) : (
+                      label
+                    )
+                  })()}
+                </span>
+                .
+              </p>
+            ) : (
+              <p className="book-mother-line">
+                أما زوجات <strong>{displayPersonName(person.name)}</strong> فهن:{' '}
+                {wives.map((w, idx) => {
+                  const linked = resolveWife(w, root)
+                  const label = wifeLineageFullLabel(w, root, 6)
+                  return (
+                    <span key={w.id}>
+                      {idx > 0 && '، و'}
+                      <span
+                        className={linked ? 'is-clickable' : ''}
+                        onClick={linked ? () => onSelectPerson(linked) : undefined}
+                        title={linked ? `انقر لعرض بطاقة ${linked.name}` : label}
+                      >
+                        {label}
+                      </span>
+                    </span>
+                  )
+                })}
+                .
+              </p>
+            )}
+          </div>
+        )
       )}
     </div>
   )
@@ -982,7 +741,26 @@ function PersonDetailModal({
   onGoToChart?: () => void
 }) {
   const isMale = person.gender === 'M'
-  const path = findPath(root, person.id)
+  let path = findPath(root, person.id)
+  if (path.length <= 1) {
+    const targetTreeId = person.branchMeta?.treeId
+    if (targetTreeId) {
+      const sourceRoot = getCachedTreeRoot(targetTreeId)
+      if (sourceRoot) {
+        const p = findPath(sourceRoot, person.branchMeta?.originalId || person.id)
+        if (p.length > 1) path = p
+      }
+    }
+    if (path.length <= 1) {
+      for (const otherRoot of getAllKnownCachedRoots()) {
+        const p = findPath(otherRoot, person.branchMeta?.originalId || person.id)
+        if (p.length > 1) {
+          path = p
+          break
+        }
+      }
+    }
+  }
   const ancestors = path.slice(0, -1).reverse() // from father upwards
   const parent = ancestors.length > 0 ? ancestors[0] : null
   const sons = person.children.filter((c) => c.gender === 'M')
@@ -990,10 +768,22 @@ function PersonDetailModal({
   const generation = path.length
 
   // Build patronymic breadcrumb
-  const lineageBreadcrumb = path.map((p) => p.name).reverse().join(' بن ')
+  const lineageBreadcrumb = (() => {
+    if (path.length === 0) return displayPersonName(person.name)
+    const rev = [...path].reverse()
+    return rev
+      .map((p, idx) => {
+        const name = displayPersonName(p.name)
+        if (idx === 0) return name
+        const prev = rev[idx - 1]
+        const connector = prev.gender === 'F' ? 'بنت' : 'بن'
+        return `${connector} ${name}`
+      })
+      .join(' ')
+  })()
 
   const motherName = useMemo(() => {
-    return motherDisplayLabel(person, parent, root)
+    return cleanLineageText(motherDisplayLabel(person, parent, root))
   }, [person, parent, root])
 
   return (
@@ -1018,7 +808,7 @@ function PersonDetailModal({
               <span className="tribute-badge-gen">جيل {generation.toLocaleString('ar')}</span>
               <span className="tribute-badge-id">{person.id}</span>
             </div>
-            <h2 className="tribute-modal-name">{person.name}</h2>
+            <h2 className="tribute-modal-name">{displayPersonName(person.name)}</h2>
           </div>
           <button
             type="button"
@@ -1046,7 +836,7 @@ function PersonDetailModal({
                 className="tribute-person-link-btn"
                 onClick={() => onSelectPerson(parent)}
               >
-                {parent.name} <span className="tribute-link-id">({parent.id})</span> ↗
+                {displayPersonName(parent.name)} <span className="tribute-link-id">({parent.id})</span> ↗
               </button>
             </div>
           )}
@@ -1067,9 +857,7 @@ function PersonDetailModal({
             <div className="tribute-modal-chips-list">
               {person.wives.map((wife) => {
                 const fullLabel = wifeLineageFullLabel(wife, root, 4)
-                const linked =
-                  resolveWife(wife, root) ||
-                  (wife.type === 'tree' && wife.personId ? findPerson(root, wife.personId) : null)
+                const linked = resolveWife(wife, root)
                 return (
                   <div key={wife.id} className="tribute-modal-wife-card">
                     <span className="tribute-wife-icon">⚭</span>

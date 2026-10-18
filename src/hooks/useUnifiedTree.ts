@@ -45,7 +45,7 @@ export function useUnifiedTree({
 
   // Memoize to prevent new array reference on every render
   const connectedBranchMetas = useMemo(
-    () => sessions.filter((s) => s.linkedFrom?.mainTreeId === mainTreeId),
+    () => sessions.filter((s) => s.id !== mainTreeId && s.linkedFrom?.mainTreeId === mainTreeId),
     // Use JSON-serialized IDs as stable key so the memo only changes when the
     // actual set of branch IDs changes, not on every session object re-creation
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -53,7 +53,7 @@ export function useUnifiedTree({
       mainTreeId,
       // Derive a stable primitive from the branch list
       sessions
-        .filter((s) => s.linkedFrom?.mainTreeId === mainTreeId)
+        .filter((s) => s.id !== mainTreeId && s.linkedFrom?.mainTreeId === mainTreeId)
         .map((s) => s.id)
         .sort()
         .join(','),

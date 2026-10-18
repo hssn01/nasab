@@ -372,6 +372,7 @@ export async function fetchTreeState(id: string): Promise<TreeState | null> {
     }
 
     let state: TreeState | null = null
+    const effectiveLink = data.linked_from || data.state?.linkedFrom
 
     // Always attempt reading normalized persons/unions first (highest fidelity)
     const relState = await fetchRelationalState(id, {
@@ -383,15 +384,24 @@ export async function fetchTreeState(id: string): Promise<TreeState | null> {
       males_queue: data.males_queue,
       current_male_index: data.current_male_index,
       current_person_id: data.current_person_id,
-      linked_from: data.linked_from,
+      linked_from: effectiveLink,
     })
 
     if (relState && relState.root) {
-      state = relState
+      state = {
+        ...relState,
+        linkedFrom: effectiveLink || relState.linkedFrom,
+      }
     } else if (data.state && (data.state as TreeState).root) {
-      state = data.state as TreeState
+      state = {
+        ...(data.state as TreeState),
+        linkedFrom: effectiveLink || (data.state as TreeState).linkedFrom,
+      }
     } else if (relState) {
-      state = relState
+      state = {
+        ...relState,
+        linkedFrom: effectiveLink || relState.linkedFrom,
+      }
     } else {
       state = (data.state as TreeState) || null
     }
@@ -575,21 +585,25 @@ export async function saveTreeState(id: string, state: TreeState): Promise<void>
   const now = new Date().toISOString()
   const name = state.root?.name ? `شجرة ${state.root.name}` : undefined
 
-  // Always update local cache instantly
-  setCachedState(id, state)
-
   // Update in IndexedDB (marked synced: false initially until uploaded)
   const existing = await getSession(id)
+  const cached = getCachedState(id)
+  const effectiveLinkedFrom = state.linkedFrom || existing?.linkedFrom || existing?.state?.linkedFrom || cached?.linkedFrom
+  const finalState: TreeState = effectiveLinkedFrom ? { ...state, linkedFrom: effectiveLinkedFrom } : state
   const sessionName = name || existing?.name || 'شجرتي'
+
+  // Always update local cache instantly with full linked state
+  setCachedState(id, finalState)
 
   await saveSessionLocally({
     id,
     name: sessionName,
-    state,
+    state: finalState,
     updated_at: now,
     downloaded: true,
     synced: false,
-    rootAncestor: state.root?.name || existing?.rootAncestor || sessionName,
+    rootAncestor: finalState.root?.name || existing?.rootAncestor || sessionName,
+    linkedFrom: effectiveLinkedFrom,
   })
 
   // Update metadata cache
@@ -604,9 +618,9 @@ export async function saveTreeState(id: string, state: TreeState): Promise<void>
   if (!navigator.onLine || !isConfigured) return
 
   try {
-    const bundle = treeToRelational(id, sessionName, state, now)
+    const bundle = treeToRelational(id, sessionName, finalState, now)
     const payload: any = {
-      state,            // dual-write: keep blob
+      state: finalState,            // dual-write: keep blob with preserved link
       updated_at: now,
       root_person_id: bundle.tree.rootPersonId ?? null,
       phase: bundle.tree.phase,
@@ -622,13 +636,13 @@ export async function saveTreeState(id: string, state: TreeState): Promise<void>
 
     // If schema cache hasn't refreshed yet, fall back to blob-only update
     if (error) {
-      const blobPayload: any = { state, updated_at: now }
+      const blobPayload: any = { state: finalState, updated_at: now }
       if (name) blobPayload.name = name
       await supabase.from('trees').update(blobPayload).eq('id', id)
     }
 
     // Write normalized rows in parallel (no await — don't block the save)
-    upsertRelationalRows(id, sessionName, state, now)
+    upsertRelationalRows(id, sessionName, finalState, now)
 
     if (!error) {
       await saveSessionLocally(
