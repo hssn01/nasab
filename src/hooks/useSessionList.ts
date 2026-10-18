@@ -4,8 +4,9 @@ import {
   deleteSessionLocally,
   downloadSessionFromSupabase,
   getAllSessions,
+  saveSessionLocally,
 } from '../localDb'
-import { getCachedTreeList } from '../db'
+import { getCachedTreeList, setCachedState } from '../db'
 import type { TreeMeta } from '../types'
 
 export function useSessionList() {
@@ -88,6 +89,34 @@ export function useSessionList() {
             rootAncestor: l.rootAncestor || l.state?.root?.name || l.name,
             linkedFrom: l.linkedFrom || l.state?.linkedFrom,
           })
+        }
+
+        // Automatically update local cache and IndexedDB if remote tree is newer (e.g. edited from internet)
+        for (const remote of remoteList) {
+          const localMatch = localMap.get(remote.id)
+          const rState = typeof remote.state === 'string' ? JSON.parse(remote.state) : remote.state
+          if (!rState || !rState.root) continue
+
+          const remoteTime = remote.updated_at ? new Date(remote.updated_at).getTime() : 0
+          const localTime = localMatch?.updated_at ? new Date(localMatch.updated_at).getTime() : 0
+
+          if (localMatch?.synced !== false && remoteTime > localTime) {
+            setCachedState(remote.id, rState)
+            if (localMatch?.downloaded) {
+              void saveSessionLocally(
+                {
+                  id: remote.id,
+                  name: remote.name,
+                  state: rState,
+                  updated_at: remote.updated_at,
+                  downloaded: true,
+                  synced: true,
+                  linkedFrom: rState.linkedFrom || localMatch.linkedFrom,
+                },
+                true
+              )
+            }
+          }
         }
 
         setSessions(merged)

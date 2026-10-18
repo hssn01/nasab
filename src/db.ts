@@ -389,14 +389,29 @@ export async function fetchTreeState(id: string): Promise<TreeState | null> {
       linked_from: effectiveLink,
     })
 
+    // Compare timestamps to protect any unsynced offline local edits
+    const remoteTime = data.updated_at ? new Date(data.updated_at).getTime() : 0
+    const localTime = local?.updated_at ? new Date(local.updated_at).getTime() : 0
+
+    if (local && local.synced === false && localTime > remoteTime && local.state?.root) {
+      console.log(`[nasab] Local has newer unsynced edits for tree ${id}, keeping local`)
+      return local.state
+    }
+
     let state: TreeState | null = null
 
-    if (relState && relState.root) {
+    // Prefer stateObj: when edits are made from the internet/viewer, trees.state is the direct source of truth
+    if (stateObj && stateObj.root) {
+      state = {
+        ...stateObj,
+        linkedFrom: effectiveLink || stateObj.linkedFrom,
+      }
+    } else if (relState && relState.root) {
       state = {
         ...relState,
         linkedFrom: effectiveLink || relState.linkedFrom,
       }
-    } else if (stateObj && stateObj.root) {
+    } else if (stateObj) {
       state = {
         ...stateObj,
         linkedFrom: effectiveLink || stateObj.linkedFrom,
@@ -406,17 +421,14 @@ export async function fetchTreeState(id: string): Promise<TreeState | null> {
         ...relState,
         linkedFrom: effectiveLink || relState.linkedFrom,
       }
-    } else {
-      state = stateObj ? { ...stateObj, linkedFrom: effectiveLink || stateObj.linkedFrom } : null
     }
 
     if (state && effectiveLink && !state.linkedFrom) {
       state.linkedFrom = effectiveLink
     }
 
-    // Auto-backfill relational rows if blob exists but relational rows are missing
-    if (!relState && state && state.root) {
-      console.log(`[nasab] Backfilling relational rows for tree ${id}`)
+    // Keep relational tables up to date with the latest state
+    if (state && state.root) {
       upsertRelationalRows(id, data.name, state, data.updated_at || new Date().toISOString())
     }
 
