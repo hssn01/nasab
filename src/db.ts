@@ -288,26 +288,16 @@ export async function fetchDeviceTrees(): Promise<TreeMeta[]> {
   }
 
   try {
-    let data: any = null
-    const { data: fullData, error: fullErr } = await supabase
+    const { data: safeData, error: safeErr } = await supabase
       .from('trees')
-      .select('id, name, updated_at, state, root_person_id, linked_from')
+      .select('id, name, updated_at, state')
       .order('updated_at', { ascending: false })
       .limit(50)
 
-    if (!fullErr && fullData) {
-      data = fullData
-    } else {
-      const { data: safeData, error: safeErr } = await supabase
-        .from('trees')
-        .select('id, name, updated_at, state')
-        .order('updated_at', { ascending: false })
-        .limit(50)
-      if (safeErr || !safeData) {
-        return cached
-      }
-      data = safeData
+    if (safeErr || !safeData) {
+      return cached
     }
+    const data = safeData
 
     const localSessions = await getAllSessions().catch(() => [])
     const localMap = new Map(localSessions.map((s) => [s.id, s]))
@@ -319,7 +309,7 @@ export async function fetchDeviceTrees(): Promise<TreeMeta[]> {
       downloaded: Boolean(localMap.get(t.id)?.downloaded),
       synced: true,
       rootAncestor: t.state?.root?.name || t.name,
-      linkedFrom: t.linked_from || t.state?.linkedFrom || localMap.get(t.id)?.linkedFrom,
+      linkedFrom: t.state?.linkedFrom || localMap.get(t.id)?.linkedFrom,
     }))
 
     // Merge remote trees with any local-only offline trees
@@ -344,48 +334,35 @@ export async function fetchTreeState(id: string): Promise<TreeState | null> {
   }
 
   try {
-    // Try fetching with full relational columns first
-    let data: any = null
-
-    const fullResult = await supabase
+    const { data, error } = await supabase
       .from('trees')
-      .select('state, name, updated_at, phase, root_person_id, male_counter, female_counter, males_queue, current_male_index, current_person_id, linked_from')
+      .select('id, name, updated_at, state')
       .eq('id', id)
       .single()
 
-    if (fullResult.error?.code === 'PGRST116' || (fullResult.error && !fullResult.data)) {
-      // PostgREST schema cache hasn't refreshed — fall back to blob-only
-      const blobResult = await supabase
-        .from('trees')
-        .select('state, name, updated_at')
-        .eq('id', id)
-        .single()
-      if (!blobResult.error && blobResult.data) data = blobResult.data
-    } else if (!fullResult.error) {
-      data = fullResult.data
-    }
-
-    if (!data) {
+    if (error || !data) {
       if (cached) return cached
       const local = await getSession(id)
       return local ? local.state : null
     }
 
-    let state: TreeState | null = null
-    const effectiveLink = data.linked_from || data.state?.linkedFrom
+    const stateObj = data.state as TreeState | undefined
+    const effectiveLink = stateObj?.linkedFrom
 
     // Always attempt reading normalized persons/unions first (highest fidelity)
     const relState = await fetchRelationalState(id, {
       name: data.name,
-      phase: data.phase || 'complete',
-      root_person_id: data.root_person_id,
-      male_counter: data.male_counter,
-      female_counter: data.female_counter,
-      males_queue: data.males_queue,
-      current_male_index: data.current_male_index,
-      current_person_id: data.current_person_id,
+      phase: stateObj?.phase || 'complete',
+      root_person_id: stateObj?.root?.id,
+      male_counter: stateObj?.maleCounter,
+      female_counter: stateObj?.femaleCounter,
+      males_queue: stateObj?.malesQueue,
+      current_male_index: stateObj?.currentMaleIndex,
+      current_person_id: stateObj?.currentPersonId,
       linked_from: effectiveLink,
     })
+
+    let state: TreeState | null = null
 
     if (relState && relState.root) {
       state = {
