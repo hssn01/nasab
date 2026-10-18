@@ -176,16 +176,12 @@ export function TreeWifePicker({
   }, [femalesWithLineage, query, fatherFilter])
 
   function handleSelect(item: FemaleWithLineage) {
-    if (isCurrentTree) {
-      onSelect(item.person.id)
-    } else {
-      onSelect(item.person.id, {
-        treeId: selectedTreeId,
-        treeName: activeTreeName,
-        personName: item.person.name,
-        lineageLabel: item.lineageLabel,
-      })
-    }
+    onSelect(item.person.id, {
+      treeId: isCurrentTree ? currentTreeId : selectedTreeId,
+      treeName: activeTreeName,
+      personName: item.person.name,
+      lineageLabel: item.lineageLabel,
+    })
   }
 
   function handleCreate() {

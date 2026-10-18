@@ -1410,15 +1410,42 @@
 
   /* Force paper to fit phone screen width cleanly without horizontal scroll cutoffs */
   .tribute-paper.portrait,
-  .tribute-paper.landscape {
+  .tribute-paper.landscape,
+  .tribute-paper.book-style {
     width: 100% !important;
     max-width: 100% !important;
     min-width: 0 !important;
     min-height: auto !important;
-    padding: 14px 8px !important;
+    padding: 16px 12px !important;
     box-sizing: border-box !important;
-    border-radius: 8px !important;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25) !important;
+    border-radius: 6px !important;
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.2) !important;
+    border-left: none !important;
+    border-right: none !important;
+  }
+
+  .book-main-title {
+    font-size: 17pt !important;
+  }
+
+  .book-basmala {
+    font-size: 13.5pt !important;
+  }
+
+  .book-progenitor {
+    font-size: 12pt !important;
+  }
+
+  .book-entry-header {
+    font-size: 13pt !important;
+  }
+
+  .book-child-item {
+    font-size: 11.5pt !important;
+  }
+
+  .book-mother-line {
+    font-size: 11pt !important;
   }
 
   .tribute-outer-border {
@@ -2344,18 +2371,47 @@
 }
 
 @media print {
+  @page {
+    size: A4 portrait !important;
+    margin: 12mm 10mm !important;
+  }
+
+  html,
   body {
     background: #ffffff !important;
+    color: #0f172a !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
   }
+
   .print-page-wrapper {
     background: #ffffff !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    overflow: visible !important;
   }
+
+  .print-stage {
+    padding: 0 !important;
+    margin: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    overflow: visible !important;
+    display: block !important;
+  }
+
   .print-toolbar-container,
   .tribute-linked-trees-section,
   .tribute-footer,
   .print-running-tfoot {
     display: none !important;
   }
+
   .tribute-paper.book-style {
     box-shadow: none !important;
     border: none !important;
@@ -2364,6 +2420,33 @@
     max-width: 100% !important;
     width: 100% !important;
   }
+
+  .print-table-shell {
+    display: table !important;
+    width: 100% !important;
+    border-collapse: collapse !important;
+  }
+
+  .print-running-thead {
+    display: table-header-group !important;
+  }
+
+  .print-running-header {
+    display: flex !important;
+    justify-content: space-between !important;
+    align-items: center !important;
+    font-size: 8.5pt !important;
+    color: #64748b !important;
+    padding-bottom: 2.5mm !important;
+    margin-bottom: 3mm !important;
+    border-bottom: 1px solid #cbd5e1 !important;
+    font-family: 'Amiri', 'Traditional Arabic', serif !important;
+  }
+
+  .print-table-body {
+    display: table-row-group !important;
+  }
+
   .book-daughters-branches-section {
     page-break-before: auto !important;
     break-before: auto !important;
@@ -2371,26 +2454,34 @@
     padding-top: 18px !important;
     border-top: 1.5pt solid #0f172a !important;
   }
+
   .book-branches-title {
     font-size: 13pt !important;
   }
+
   .book-entry-card {
     border-bottom: 1px solid #cbd5e1 !important;
     page-break-inside: avoid !important;
     break-inside: avoid !important;
+    padding: 8px 0 !important;
   }
+
   .book-child-item {
     font-size: 11pt !important;
   }
+
   .book-entry-header {
     font-size: 12pt !important;
   }
+
   .book-daughters-header {
     font-size: 11.5pt !important;
   }
+
   .book-mother-line {
     font-size: 10.5pt !important;
   }
+
   .is-clickable {
     cursor: default !important;
     color: inherit !important;

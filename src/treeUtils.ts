@@ -564,10 +564,16 @@ export function wifeLineageFullLabel(
 ): string {
   if (!wife) return ''
   if (wife.type === 'tree') {
-    // 1. Search in wife's own source tree first to wire her to her biological ancestors
+    const targetId = wife.personId
+
+    // 1. If she has a pre-computed lineage label, use it directly!
+    if (wife.lineageLabel && wife.lineageLabel.trim()) {
+      return cleanLineageText(wife.lineageLabel)
+    }
+
+    // 2. Search in wife's own source tree first to wire her to her biological ancestors
     const targetTreeId = wife.treeId
     const sourceRoot = targetTreeId ? getCachedTreeRoot(targetTreeId) : null
-    const targetId = wife.personId
     if (sourceRoot && targetId) {
       const sourcePath = findPath(sourceRoot, targetId)
       if (sourcePath.length > 1) {
@@ -575,12 +581,30 @@ export function wifeLineageFullLabel(
       }
     }
 
-    // 2. If she has a pre-computed lineage label, use it directly and cleanly
-    if (wife.lineageLabel) {
-      return cleanLineageText(wife.lineageLabel)
+    // 3. Resolve inside root (handles current tree and connected unified branches)
+    const linked = resolveWife(wife, root)
+    if (linked) {
+      const rootPath = findPath(root, linked.id)
+      if (rootPath.length > 1) {
+        return formatWifeLineagePath(rootPath, minAncestors)
+      }
+      if (linked.branchMeta?.treeId) {
+        const bRoot = getCachedTreeRoot(linked.branchMeta.treeId)
+        if (bRoot) {
+          const bPath = findPath(bRoot, linked.branchMeta.originalId || linked.id)
+          if (bPath.length > 1) {
+            return formatWifeLineagePath(bPath, minAncestors)
+          }
+        }
+      }
+      const fl = getFemaleFullLineage(root, linked.id)
+      if (fl && fl !== linked.id && fl !== linked.name) {
+        return cleanLineageText(fl)
+      }
+      return cleanLineageText(linked.name)
     }
 
-    // 3. Search across all known cached roots for her biological lineage
+    // 4. Search across all known cached roots for her biological lineage
     for (const r of getAllKnownCachedRoots()) {
       const found = findPerson(r, targetId)
       if (found) {
@@ -592,13 +616,16 @@ export function wifeLineageFullLabel(
       }
     }
 
-    if (wife.personName) {
-      return cleanLineageText(wife.personName)
+    // 5. Query getFemaleFullLineage across roots
+    if (targetId) {
+      const fl = getFemaleFullLineage(root, targetId)
+      if (fl && fl !== targetId) {
+        return cleanLineageText(fl)
+      }
     }
 
-    const linked = resolveWife(wife, root)
-    if (linked) {
-      return cleanLineageText(linked.name)
+    if (wife.personName) {
+      return cleanLineageText(wife.personName)
     }
 
     return targetId || 'زوجة'
