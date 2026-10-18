@@ -82,6 +82,7 @@ export interface TreeState {
   malesQueue: string[]
   currentMaleIndex: number
   linkedFrom?: TreeLink
+  commonFatherName?: string
 }
 
 export interface TreeMeta {

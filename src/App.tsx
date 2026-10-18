@@ -1081,7 +1081,7 @@ function TreeChartPage({
   const [showUnifiedView, setShowUnifiedView] = useState(true)
   const [commonFatherName] = useState(() => {
     const stored = localStorage.getItem(`commonFatherName_${treeId}`)
-    return stored?.trim() || ''
+    return stored?.trim() || (tree as any).commonFatherName?.trim() || 'محمد'
   })
   const [isLinkModalOpen, setIsLinkModalOpen] = useState(false)
   const [linkModalPerson, setLinkModalPerson] = useState<Person | null>(null)
@@ -1413,8 +1413,8 @@ function TreePrintPage({
   const mainTreeName = currentTreeMeta?.name || tree.root?.name || 'الشجرة العائلية'
 
   const commonFatherName = useMemo(() => {
-    return localStorage.getItem(`commonFatherName_${treeId}`)?.trim() || undefined
-  }, [treeId])
+    return localStorage.getItem(`commonFatherName_${treeId}`)?.trim() || (tree as any).commonFatherName?.trim() || 'محمد'
+  }, [treeId, (tree as any).commonFatherName])
 
   const { unifiedResult, hasConnectedBranches, branchCount } = useUnifiedTree({
     mainTreeId: treeId,

@@ -1295,7 +1295,7 @@ export function buildUnifiedTree(
   if (brotherBranches.length > 0) {
     const brotherRoots = brotherBranches.map((b) => b.clonedRoot)
     const trimmedCommonName = commonFatherName?.trim() || ''
-    const commonFatherTitle = trimmedCommonName || 'الأصل المشترك'
+    const commonFatherTitle = trimmedCommonName || 'محمد'
 
     const containerRoot: Person = {
       id: `__COMMON_ROOT__`,

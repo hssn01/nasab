@@ -395,11 +395,17 @@ export function PublicViewerPortal({
               )
               const validBranches = loadedBranches.filter((b): b is NonNullable<typeof b> => b !== null)
               if (validBranches.length > 0) {
+                const commonFather =
+                  (state as any).commonFatherName ||
+                  (selectedTreeId ? localStorage.getItem(`commonFatherName_${selectedTreeId}`) : null) ||
+                  'محمد'
+
                 const unified = buildUnifiedTree(
                   selectedTreeId!,
                   state.root,
                   state.root.name,
-                  validBranches
+                  validBranches,
+                  commonFather
                 )
                 if (unified?.root) {
                   finalState = { ...state, root: unified.root }
