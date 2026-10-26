@@ -12,6 +12,52 @@ export function isMatchingPersonId(node: Person, targetId: string): boolean {
   return false
 }
 
+export interface TreeSaveValidation {
+  ok: boolean
+  reason?: string
+}
+
+/**
+ * Guard used before persisting a tree. A saved tree must contain only its own
+ * canonical person IDs (M001/F001 style). Merged multi-tree display states —
+ * virtual common roots, branch-prefixed IDs, linked spouses and non-main
+ * branch metadata — must never be written back over the base tree.
+ */
+export function validateTreeForSave(root: Person | null): TreeSaveValidation {
+  if (!root) return { ok: false, reason: 'missing-root' }
+  if (root.id === '__COMMON_ROOT__') return { ok: false, reason: 'virtual-root' }
+
+  const seen = new Set<string>()
+
+  function walk(person: Person): TreeSaveValidation {
+    if (!/^[MF]\d{3,}$/.test(person.id)) {
+      return { ok: false, reason: `invalid-id:${person.id}` }
+    }
+    if (seen.has(person.id)) {
+      return { ok: false, reason: `duplicate-id:${person.id}` }
+    }
+    seen.add(person.id)
+
+    if (person.branchMeta?.isVirtualContainer) {
+      return { ok: false, reason: `virtual-container:${person.id}` }
+    }
+    if (person.branchMeta && person.branchMeta.type !== 'main') {
+      return { ok: false, reason: `branch-meta:${person.branchMeta.type}:${person.id}` }
+    }
+    if (person.linkedSpouse) {
+      return { ok: false, reason: `linked-spouse:${person.id}` }
+    }
+
+    for (const child of person.children) {
+      const result = walk(child)
+      if (!result.ok) return result
+    }
+    return { ok: true }
+  }
+
+  return walk(root)
+}
+
 export function findPerson(root: Person, id: string): Person | null {
   if (isMatchingPersonId(root, id)) return root
   if (root.linkedSpouse) {
@@ -68,21 +114,36 @@ function formatAncestralPath(path: Person[]): string {
     .join(' ')
 }
 
+const lineageTextCache = new WeakMap<Person, Map<string, string>>()
+
 export function getLineageText(root: Person, id: string): string {
-  // If the target person is from a linked branch, prefer their biological lineage in their source tree
-  const target = findPerson(root, id)
+  let cache = lineageTextCache.get(root)
+  if (!cache) {
+    cache = new Map()
+    lineageTextCache.set(root, cache)
+  }
+  const cached = cache.get(id)
+  if (cached !== undefined) return cached
+
+  // One traversal supplies both the target and its path. Linked spouses are
+  // not part of findPath's child walk, so fall back to findPerson for them.
+  let path = findPath(root, id)
+  const target = path[path.length - 1] ?? findPerson(root, id)
   if (target?.branchMeta?.treeId) {
+    // If the target person is from a linked branch, prefer their biological
+    // lineage in their source tree.
     const sourceRoot = getCachedTreeRoot(target.branchMeta.treeId)
     if (sourceRoot) {
       const origId = target.branchMeta.originalId || target.id
-      const p = findPath(sourceRoot, origId)
-      if (p.length > 0) {
-        return formatAncestralPath(p)
+      const sourcePath = findPath(sourceRoot, origId)
+      if (sourcePath.length > 0) {
+        const text = formatAncestralPath(sourcePath)
+        cache.set(id, text)
+        return text
       }
     }
   }
 
-  let path = findPath(root, id)
   if (path.length === 0) {
     for (const otherRoot of getAllKnownCachedRoots()) {
       const p = findPath(otherRoot, id)
@@ -92,12 +153,38 @@ export function getLineageText(root: Person, id: string): string {
       }
     }
   }
-  if (path.length === 0) return ''
-  return formatAncestralPath(path)
+  const text = path.length === 0 ? '' : formatAncestralPath(path)
+  cache.set(id, text)
+  return text
 }
 
 export function getSons(person: Person): Person[] {
   return person.children.filter((c) => c.gender === 'M')
+}
+
+/**
+ * Deterministic sibling order used by the editor:
+ * all sons first, then all daughters, each group ordered by the numeric part
+ * of its M/F code. The male and female counters are independent, so an M
+ * code is never compared with an F code.
+ */
+export function orderChildrenByCode(children: Person[]): Person[] {
+  function codeNumber(person: Person): number {
+    const match = /^[MF](\d+)$/.exec(person.id)
+    return match ? Number(match[1]) : Number.MAX_SAFE_INTEGER
+  }
+
+  function sortGroup(group: Person[]): Person[] {
+    return [...group].sort((a, b) => {
+      const difference = codeNumber(a) - codeNumber(b)
+      return difference !== 0 ? difference : a.id.localeCompare(b.id)
+    })
+  }
+
+  return [
+    ...sortGroup(children.filter((child) => child.gender === 'M')),
+    ...sortGroup(children.filter((child) => child.gender === 'F')),
+  ]
 }
 
 /** After finishing children entry, find next person in DFS son-order traversal. */
@@ -210,6 +297,7 @@ export function normalizeWife(raw: unknown, index = 0): Wife | null {
       const tw = raw as TreeWife
       return {
         id: tw.id,
+        dbId: tw.dbId,
         type: 'tree',
         personId: tw.personId.toUpperCase(),
         treeId: tw.treeId,
@@ -220,6 +308,7 @@ export function normalizeWife(raw: unknown, index = 0): Wife | null {
     }
     return {
       id: raw.id,
+      dbId: raw.dbId,
       type: 'external',
       name: raw.name.trim(),
       family: raw.family.trim(),
@@ -256,16 +345,34 @@ export function normalizeWives(raw: unknown): Wife[] {
     .filter((wife): wife is Wife => wife !== null)
 }
 
-export function getCachedTreeRoot(treeId: string): Person | null {
+// Parsing the same large tree cache on every lineage/render call was the main
+// cost of switching the unified view on for a 2,000+ person tree. Keep the
+// parsed root keyed by the raw localStorage value; a write changes the string
+// and causes exactly one re-parse.
+const cachedTreeRootEntries = new Map<string, { raw: string; root: Person | null }>()
+
+function readCachedTreeRoot(treeId: string): Person | null {
   try {
     if (typeof localStorage === 'undefined') return null
     const raw = localStorage.getItem('nasab-cache-v1-' + treeId)
-    if (!raw) return null
+    if (!raw) {
+      cachedTreeRootEntries.delete(treeId)
+      return null
+    }
+    const cached = cachedTreeRootEntries.get(treeId)
+    if (cached?.raw === raw) return cached.root
     const parsed = JSON.parse(raw) as TreeState
-    return parsed?.root ?? null
+    const root = parsed?.root ?? null
+    cachedTreeRootEntries.set(treeId, { raw, root })
+    return root
   } catch {
+    cachedTreeRootEntries.delete(treeId)
     return null
   }
+}
+
+export function getCachedTreeRoot(treeId: string): Person | null {
+  return readCachedTreeRoot(treeId)
 }
 
 export function getAllKnownCachedRoots(): Person[] {
@@ -278,17 +385,11 @@ export function getAllKnownCachedRoots(): Person[] {
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i)
       if (key && key.startsWith('nasab-cache-v1-')) {
-        try {
-          const raw = localStorage.getItem(key)
-          if (raw) {
-            const parsed = JSON.parse(raw) as TreeState
-            if (parsed?.root && !seenRoots.has(parsed.root.id)) {
-              seenRoots.add(parsed.root.id)
-              roots.push(parsed.root)
-            }
-          }
-        } catch {
-          // ignore
+        const treeId = key.slice('nasab-cache-v1-'.length)
+        const root = readCachedTreeRoot(treeId)
+        if (root && !seenRoots.has(root.id)) {
+          seenRoots.add(root.id)
+          roots.push(root)
         }
       }
     }
@@ -297,7 +398,7 @@ export function getAllKnownCachedRoots(): Person[] {
     const rawIds = localStorage.getItem('nasab-device-trees-v1')
     const ids: string[] = rawIds ? JSON.parse(rawIds) : []
     for (const id of ids) {
-      const r = getCachedTreeRoot(id)
+      const r = readCachedTreeRoot(id)
       if (r && !seenRoots.has(r.id)) {
         seenRoots.add(r.id)
         roots.push(r)
@@ -336,15 +437,7 @@ export function resolveWife(
         const prefixed = findPerson(root, `${prefix}${targetId}`)
         if (prefixed && isF(prefixed)) return prefixed
 
-        // 1b. Try direct findPerson if it has matching treeId in branchMeta or if root tree matches
-        const direct = findPerson(root, targetId)
-        if (direct && isF(direct)) {
-          if (!direct.branchMeta?.treeId || direct.branchMeta.treeId === targetTreeId) {
-            return direct
-          }
-        }
-
-        // 1c. Deep search for matching female by originalId and treeId
+        // 1b. Deep search for matching female by originalId and treeId
         let match: Person | null = null
         function walkTree(node: Person) {
           if (match) return
@@ -364,68 +457,36 @@ export function resolveWife(
         walkTree(root)
         if (match) return match
 
-        // 1d. Search in her source tree's cached root
-        const sourceRoot = getCachedTreeRoot(targetTreeId)
-        if (sourceRoot) {
-          const directInSource = findPerson(sourceRoot, targetId)
-          if (directInSource && isF(directInSource)) return directInSource
-
-          let sourceMatch: Person | null = null
-          function walkSource(node: Person) {
-            if (sourceMatch) return
-            if (isF(node) && isMatchingPersonId(node, targetId)) {
-              sourceMatch = node
-              return
-            }
-            if (node.linkedSpouse) walkSource(node.linkedSpouse)
-            for (const child of node.children) {
-              walkSource(child)
-            }
-          }
-          walkSource(sourceRoot)
-          if (sourceMatch) return sourceMatch
-        }
-
-        // 1e. Deep search all known cached roots on device
-        for (const otherRoot of getAllKnownCachedRoots()) {
-          const p = findPerson(otherRoot, targetId)
-          if (p && isF(p)) return p
-        }
-
-        // 1f. If direct match in root exists regardless of treeId
-        if (direct && isF(direct)) return direct
-
+        // Do not resolve a cross-tree wife against a cached copy of another
+        // tree here. Her tag would then carry that other tree's person id,
+        // which can collide with a same-coded woman in the displayed root and
+        // navigate to the wrong person. Callers render her legacy label and
+        // open her source tree instead.
         return null
       }
 
-      // 2. Same-tree wife (no treeId on wife):
-      // 2a. Direct match in root
-      const direct = findPerson(root, targetId)
-      if (direct && isF(direct)) return direct
+      // 2. Same-tree wife (no treeId on wife). In a unified view the main tree
+      // and its branches can contain the same code (F010 in the main tree is a
+      // different woman from F010 in a branch). A same-tree wife only exists in
+      // the tree being displayed, never in a `br_...` clone, so skip branches
+      // entirely instead of silently attaching a same-coded woman.
+      const isBranchClone = (p: Person) => /^br_[a-z0-9]+_/i.test(p.id)
 
-      // 2b. In unified view, walk root with isMatchingPersonId
-      let sameMatch: Person | null = null
-      function walkSame(node: Person) {
-        if (sameMatch) return
-        if (isF(node) && isMatchingPersonId(node, targetId)) {
-          sameMatch = node
-          return
+      function findSameTreePerson(node: Person): Person | null {
+        if (isBranchClone(node)) return null
+        if (isF(node) && isMatchingPersonId(node, targetId)) return node
+        if (node.linkedSpouse) {
+          const linked = findSameTreePerson(node.linkedSpouse)
+          if (linked) return linked
         }
-        if (node.linkedSpouse) walkSame(node.linkedSpouse)
         for (const child of node.children) {
-          walkSame(child)
+          const found = findSameTreePerson(child)
+          if (found) return found
         }
-      }
-      walkSame(root)
-      if (sameMatch) return sameMatch
-
-      // 2c. Fallback across all cached roots if not in current root
-      for (const otherRoot of getAllKnownCachedRoots()) {
-        const p = findPerson(otherRoot, targetId)
-        if (p && isF(p)) return p
+        return null
       }
 
-      return null
+      return findSameTreePerson(root)
     }
     return null
   }
@@ -491,6 +552,14 @@ export function wifeShortLabel(wife: Wife, root: Person): string {
     const linked = resolveWife(wife, root)
     if (linked) {
       const displayId = linked.branchMeta?.originalId || linked.id
+      const isCrossTree = Boolean(
+        wife.treeId || (linked.branchMeta && linked.branchMeta.type !== 'main'),
+      )
+      const treeLabel = wife.treeName || linked.branchMeta?.treeName
+      // A cross-tree wife's code is only unique inside her own tree; showing a
+      // bare code here collides with the same-coded local woman. Show the
+      // source tree instead.
+      if (isCrossTree && treeLabel) return `${linked.name} — ${treeLabel}`
       return `${linked.name} (${displayId})`
     }
     if (wife.personName) {
@@ -604,15 +673,19 @@ export function wifeLineageFullLabel(
       return cleanLineageText(linked.name)
     }
 
-    // 4. Search across all known cached roots for her biological lineage
-    for (const r of getAllKnownCachedRoots()) {
-      const found = findPerson(r, targetId)
-      if (found) {
-        const foundPath = findPath(r, found.id)
-        if (foundPath.length > 1) {
-          return formatWifeLineagePath(foundPath, minAncestors)
+    // 4. Last-resort search across cached roots — only for a same-tree wife.
+    // For a cross-tree wife this would match a same-coded woman from another
+    // family, so her own source-tree lookup above is the only valid one.
+    if (!targetTreeId) {
+      for (const r of getAllKnownCachedRoots()) {
+        const found = findPerson(r, targetId)
+        if (found) {
+          const foundPath = findPath(r, found.id)
+          if (foundPath.length > 1) {
+            return formatWifeLineagePath(foundPath, minAncestors)
+          }
+          return cleanLineageText(found.name)
         }
-        return cleanLineageText(found.name)
       }
     }
 
@@ -1158,6 +1231,20 @@ export function buildUnifiedTree(
     }
   }
 
+  // Codes that belong to each linked branch. A wife with no treeId is only
+  // assumed to belong to the branch when her code exists in that branch;
+  // otherwise she is a cross-tree wife and must keep resolving outside it.
+  const localIdsByTree = new Map<string, Set<string>>()
+  for (const b of connectedBranches) {
+    const ids = new Set<string>()
+    const collect = (p: Person) => {
+      ids.add(p.id.toUpperCase().trim())
+      for (const child of p.children) collect(child)
+    }
+    if (b.state?.root) collect(b.state.root)
+    localIdsByTree.set(b.id, ids)
+  }
+
   // Deeply clone and tag nodes with metadata, prefixing IDs to prevent collisions
   function cloneAndTag(
     person: Person,
@@ -1173,7 +1260,20 @@ export function buildUnifiedTree(
         ...meta,
         originalId: person.id,
       },
-      wives: person.wives.map((w) => ({ ...w })),
+      wives: person.wives.map((w) => ({
+        ...w,
+        // In a unified view, a wife that belongs to a linked branch must keep
+        // that branch's tree id so her tag resolves inside the branch instead
+        // of matching a same-coded woman in the main tree.
+        treeId:
+          w.type === 'tree' && meta.type !== 'main' && !w.treeId
+            ? localIdsByTree.get(meta.treeId)?.has(w.personId.toUpperCase().trim())
+              ? meta.treeId
+              : undefined
+            : w.type === 'tree'
+              ? w.treeId
+              : undefined,
+      })),
       children: person.children.map((child) => cloneAndTag(child, prefix, meta)),
       linkedSpouse: person.linkedSpouse ? cloneAndTag(person.linkedSpouse, prefix, meta) : undefined,
     }
@@ -1346,9 +1446,13 @@ export function getAllFemalesRelations(root: Person): Map<string, FemaleRelation
   }>()
 
   const femaleById = new Map<string, Person>()
+  const femaleByOriginalId = new Map<string, Person>()
 
   function registerFemale(female: Person) {
     femaleById.set(female.id, female)
+    femaleById.set(female.id.toUpperCase().trim(), female)
+    const originalId = female.branchMeta?.originalId?.toUpperCase().trim()
+    if (originalId) femaleByOriginalId.set(originalId, female)
     if (!result.has(female.id)) {
       result.set(female.id, {
         husbands: new Map(),
@@ -1383,18 +1487,13 @@ export function getAllFemalesRelations(root: Person): Map<string, FemaleRelation
         // ONLY link internal tree wives (external wives are outside bloodline and not nodes in this tree)
         if (w.type !== 'tree') continue
 
-        let targetFemale: Person | null = resolveWife(w, root)
-        if (!targetFemale && w.personId) {
-          if (femaleById.has(w.personId)) {
-            targetFemale = femaleById.get(w.personId)!
-          } else {
-            // Check originalId for branched females
-            targetFemale =
-              Array.from(femaleById.values()).find(
-                (f) => f.branchMeta?.originalId === w.personId || f.id === w.personId
-              ) || null
-          }
-        }
+        const wifeId = w.personId?.toUpperCase().trim()
+        // Fast path: most wives are already registered in this tree. Only fall
+        // back to the deep cross-tree resolver for genuine branch wives.
+        let targetFemale: Person | null = wifeId
+          ? (femaleById.get(wifeId) ?? femaleByOriginalId.get(wifeId) ?? null)
+          : null
+        if (!targetFemale) targetFemale = resolveWife(w, root)
 
         if (!targetFemale) continue
 

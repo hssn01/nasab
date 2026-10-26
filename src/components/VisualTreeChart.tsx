@@ -1,4 +1,4 @@
-import { useMemo, useState, useRef, useEffect } from 'react'
+import { memo, useCallback, useDeferredValue, useMemo, useState, useRef, useEffect } from 'react'
 import type { Person, TreeMeta, Wife } from '../types'
 import {
   collectFemales,
@@ -25,7 +25,6 @@ interface VisualTreeChartProps {
   currentTreeName?: string
   availableTrees?: TreeMeta[]
   onSelectPerson: (person: Person) => void
-  onGoToEditorForPerson?: (person: Person) => void
   onRenamePerson?: (personId: string, name: string) => void
   onAddChildrenBatch?: (personId: string, sons: string[], daughters: string[]) => void
   onDeletePerson?: (personId: string) => void
@@ -235,6 +234,505 @@ function computeTreeLayout(root: Person, expandedIds: Set<string>) {
   return { layoutRoot, nodes, links, bounds }
 }
 
+/**
+ * The chart canvas is split into memoized layers. The chart holds a lot of
+ * transient UI state (rename text, search text, modal fields); if the cards
+ * were rendered inline, every keystroke or selection would re-render thousands
+ * of cards and make the editor feel laggy. Memoizing the links layer and each
+ * individual card means only the pieces that actually changed are re-rendered.
+ */
+
+type FemalesRelationsMap = ReturnType<typeof getAllFemalesRelations>
+type FemaleRelationInfo = FemalesRelationsMap extends Map<string, infer V> ? V : never
+
+function renderWifeTagsFor(
+  person: Person,
+  root: Person,
+  onSelectPerson: (person: Person) => void,
+  onOpenTree: ((treeId: string, personId?: string) => void) | undefined,
+  setExpandedIds: React.Dispatch<React.SetStateAction<Set<string>>>,
+) {
+  const seen = new Set<string>()
+  const wives: { wife: Wife; linkedFemale: Person | null }[] = []
+
+  for (const wife of person.wives || []) {
+    const linkedFemale = resolveWife(wife, root)
+    const key = linkedFemale
+      ? `person:${linkedFemale.id}`
+      : wife.type === 'tree'
+        ? `tree:${wife.treeId || ''}:${wife.personId || wife.id}`
+        : `external:${wife.id}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    wives.push({ wife, linkedFemale })
+  }
+
+  if (wives.length === 0) return null
+
+  return (
+    <div className="visual-card-wives">
+      {wives.map(({ wife, linkedFemale }, idx) => {
+        const wifeTreeName = wife.type === 'tree' ? wife.treeName : undefined
+        const wifeTreeId = wife.type === 'tree' ? wife.treeId : undefined
+        if (linkedFemale) {
+          const displayId = linkedFemale.branchMeta?.originalId || linkedFemale.id
+          const treeLabel = wifeTreeName || linkedFemale.branchMeta?.treeName
+          // A wife is only "cross-tree" when she comes from a different tree
+          // than her husband. A branch man's wife from the same branch must
+          // stay a plain link, not be labelled as another tree's wife.
+          const husbandTreeId = person.branchMeta?.treeId
+          const linkedTreeId = linkedFemale.branchMeta?.treeId
+          const isCrossTree = Boolean(
+            (wifeTreeId && wifeTreeId !== husbandTreeId) ||
+              (linkedFemale.branchMeta &&
+                linkedFemale.branchMeta.type !== 'main' &&
+                linkedTreeId !== husbandTreeId),
+          )
+          const icon = isCrossTree ? '🌳' : '🔗'
+          const tooltip = treeLabel
+            ? `زوجة من شجرة (${treeLabel}): ${linkedFemale.name} (${displayId}) - انقر للانتقال إليها`
+            : `زوجة من السجل: ${linkedFemale.name} (${displayId}) - انقر للانتقال إليها`
+
+          return (
+            <span
+              key={`${wife.id}-${idx}`}
+              className={`wife-link-tag ${isCrossTree ? 'wife-cross-tree-tag' : ''}`}
+              onClick={(e) => {
+                e.stopPropagation()
+                const path = findPathToNode(root, linkedFemale.id)
+                setExpandedIds((prev) => {
+                  const next = new Set(prev)
+                  path.forEach((id) => next.add(id))
+                  return next
+                })
+                onSelectPerson(linkedFemale)
+              }}
+              title={tooltip}
+            >
+              {icon} {linkedFemale.name}
+              {isCrossTree && treeLabel ? ` — ${treeLabel}` : ` (${displayId})`}
+            </span>
+          )
+        }
+
+        if (wife.type === 'tree') {
+          const treeLabel = wife.treeName || 'شجرة أخرى'
+          const displayName = wife.personName || wife.personId
+          const tooltip = wife.lineageLabel
+            ? `${wife.lineageLabel} [من: ${treeLabel}]`
+            : `زوجة من: ${treeLabel} (${wife.personId})`
+          const canClick = Boolean(wife.treeId && onOpenTree)
+
+          return (
+            <span
+              key={`${wife.id}-${idx}`}
+              className={`wife-link-tag wife-cross-tree-tag ${canClick ? 'is-clickable' : ''}`}
+              onClick={(e) => {
+                if (canClick && wife.treeId) {
+                  e.stopPropagation()
+                  onOpenTree!(wife.treeId, wife.personId)
+                }
+              }}
+              title={canClick ? `${tooltip} - انقر لفتح شجرتها` : tooltip}
+            >
+              🌳 {displayName} [{treeLabel}]
+            </span>
+          )
+        }
+
+        return <span key={`${wife.id}-${idx}`}>⚭ {wifeShortLabel(wife, root)}</span>
+      })}
+    </div>
+  )
+}
+
+interface TreeLinksLayerProps {
+  layout: ReturnType<typeof computeTreeLayout>
+  zoom: number
+}
+
+const TreeLinksLayer = memo(function TreeLinksLayer({ layout, zoom }: TreeLinksLayerProps) {
+  return (
+    <svg
+      className="visual-tree-svg"
+      style={{
+        width: `${Math.max(6000, layout.bounds.width + 2000)}px`,
+        height: `${Math.max(4000, layout.bounds.height + 1500)}px`,
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        pointerEvents: 'none',
+        overflow: 'visible',
+      }}
+    >
+      {layout.links.map((link) => {
+        const midY = (link.y1 + link.y2) / 2
+        const path = `M ${link.x1} ${link.y1} C ${link.x1} ${midY}, ${link.x2} ${midY}, ${link.x2} ${link.y2}`
+        return (
+          <path
+            key={link.id}
+            d={path}
+            fill="none"
+            stroke="var(--border-strong)"
+            strokeWidth={Math.max(1.5, 2 / zoom)}
+            className="tree-link-path"
+          />
+        )
+      })}
+      {/* Spouse connector lines (horizontal between wife & husband) */}
+      {layout.nodes.filter((n) => n.spouseNode).map((node) => {
+        const sp = node.spouseNode!
+        const wifeRight = node.x - CARD_WIDTH / 2
+        const husbandLeft = sp.x + CARD_WIDTH / 2
+        const lineY = node.y + CARD_HEIGHT / 2
+        const midX = (node.x + sp.x) / 2
+        return (
+          <g key={`spouse-${node.person.id}`}>
+            {/* Horizontal line between the two cards */}
+            <line
+              x1={husbandLeft}
+              y1={lineY}
+              x2={wifeRight}
+              y2={lineY}
+              stroke="var(--female)"
+              strokeWidth={Math.max(2, 2.5 / zoom)}
+              strokeDasharray="6 3"
+              className="tree-spouse-line"
+            />
+            {/* Small heart/ring symbol at midpoint */}
+            <circle
+              cx={midX}
+              cy={lineY}
+              r={Math.max(4, 5 / zoom)}
+              fill="var(--female)"
+              opacity={0.7}
+            />
+            {/* Vertical drop line from midpoint down to CARD_HEIGHT */}
+            {node.children.length > 0 && node.isExpanded && (
+              <line
+                x1={midX}
+                y1={lineY}
+                x2={midX}
+                y2={node.y + CARD_HEIGHT}
+                stroke="var(--border-strong)"
+                strokeWidth={Math.max(1.5, 2 / zoom)}
+              />
+            )}
+          </g>
+        )
+      })}
+    </svg>
+  )
+})
+
+interface TreeNodeCardProps {
+  person: Person
+  x: number
+  y: number
+  hasChildren: boolean
+  isExpanded: boolean
+  isSelected: boolean
+  isCurrent: boolean
+  isMatch: boolean
+  isSearchResult: boolean
+  compact: boolean
+  root: Person
+  femaleRelations: FemaleRelationInfo | undefined
+  onSelectPerson: (person: Person) => void
+  openActionModal: (person: Person) => void
+  toggleExpand: (personId: string, event?: React.MouseEvent) => void
+  onOpenTree?: (treeId: string, personId?: string) => void
+  setExpandedIds: React.Dispatch<React.SetStateAction<Set<string>>>
+}
+
+const TreeNodeCard = memo(function TreeNodeCard({
+  person,
+  x,
+  y,
+  hasChildren,
+  isExpanded,
+  isSelected,
+  isCurrent,
+  isMatch,
+  isSearchResult,
+  compact,
+  root,
+  femaleRelations,
+  onSelectPerson,
+  openActionModal,
+  toggleExpand,
+  onOpenTree,
+  setExpandedIds,
+}: TreeNodeCardProps) {
+  const isMale = person.gender === 'M'
+  const open = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    onSelectPerson(person)
+    openActionModal(person)
+  }
+
+  return (
+    <div
+      className={`visual-node-card ${isMale ? 'card-m' : 'card-f'}${
+        isSelected ? ' is-selected' : ''
+      }${isCurrent ? ' is-current' : ''}${isMatch ? ' is-match' : isSearchResult ? ' is-search-result' : ''}${
+        compact ? ' compact-mode' : ''
+      }${person.branchMeta && person.branchMeta.type !== 'main' ? ' card-branch' : ''}${
+        person.branchMeta?.isVirtualContainer ? ' card-virtual-root' : ''
+      }`}
+      style={{
+        position: 'absolute',
+        left: `${x - CARD_WIDTH / 2}px`,
+        top: `${y}px`,
+        width: `${CARD_WIDTH}px`,
+        minHeight: `${CARD_HEIGHT}px`,
+      }}
+      onClick={open}
+      onDoubleClick={open}
+    >
+      <div className="visual-card-header">
+        {!person.branchMeta?.isVirtualContainer && (
+          <span className={`badge badge-${person.gender.toLowerCase()}`}>
+            {person.branchMeta?.originalId || person.id}
+          </span>
+        )}
+        {person.branchMeta && person.branchMeta.type !== 'main' && !person.branchMeta.isVirtualContainer && (
+          <span
+            className={`branch-source-badge branch-${person.branchMeta.type}`}
+            title={person.branchMeta.treeName}
+          >
+            {person.branchMeta.type === 'daughter-branch' ? '🧬' : person.branchMeta.type === 'brother-branch' ? '🤝' : '🌿'}
+          </span>
+        )}
+        <div className="visual-card-header-actions" onClick={(e) => e.stopPropagation()}>
+          {hasChildren && (
+            <button
+              type="button"
+              className="visual-toggle-btn"
+              onClick={(e) => toggleExpand(person.id, e)}
+              title={isExpanded ? 'طي الفروع' : 'توسيع الفروع'}
+            >
+              {isExpanded ? '−' : `+ ${person.children.length}`}
+            </button>
+          )}
+          <button
+            type="button"
+            className="visual-node-options-btn"
+            onClick={(e) => {
+              e.stopPropagation()
+              onSelectPerson(person)
+              openActionModal(person)
+            }}
+            title="خيارات وتفاصيل الشخص"
+            aria-label="خيارات"
+          >
+            ⋯
+          </button>
+        </div>
+      </div>
+
+      <div className="visual-card-name" dir="auto" title={person.name}>
+        {person.name}
+      </div>
+
+      {renderWifeTagsFor(person, root, onSelectPerson, onOpenTree, setExpandedIds)}
+
+      {!isMale && (() => {
+        const fInfo = femaleRelations
+        if (!fInfo || (fInfo.husbands.length === 0 && fInfo.sons.length === 0)) return null
+        return (
+          <div className="visual-card-female-relations">
+            {fInfo.husbands.length > 0 && (
+              <div
+                className="visual-card-husband"
+                title={`زوجها: ${fInfo.husbands.map((h) => h.name).join('، ')}`}
+              >
+                ⚭ {fInfo.husbands.map((h) => h.name).join('، ')}
+              </div>
+            )}
+            {fInfo.sons.length > 0 && (
+              <div
+                className="visual-card-sons"
+                title={`أبناؤها (${fInfo.sons.length}): ${fInfo.sons.map((s) => s.name).join('، ')}`}
+              >
+                👦 {fInfo.sons.length === 1 ? fInfo.sons[0].name : `${fInfo.sons.slice(0, 2).map((s) => s.name).join('، ')}${fInfo.sons.length > 2 ? '…' : ''}`}
+              </div>
+            )}
+          </div>
+        )
+      })()}
+    </div>
+  )
+})
+
+interface SpouseCardProps {
+  spouse: Person
+  partnerName: string
+  x: number
+  y: number
+  isMatch: boolean
+  isSearchResult: boolean
+  root: Person
+  onSelectPerson: (person: Person) => void
+  openActionModal: (person: Person) => void
+  onOpenTree?: (treeId: string, personId?: string) => void
+  setExpandedIds: React.Dispatch<React.SetStateAction<Set<string>>>
+}
+
+const SpouseCard = memo(function SpouseCard({
+  spouse,
+  partnerName,
+  x,
+  y,
+  isMatch,
+  isSearchResult,
+  root,
+  onSelectPerson,
+  openActionModal,
+  onOpenTree,
+  setExpandedIds,
+}: SpouseCardProps) {
+  return (
+    <div
+      className={`visual-node-card card-m card-branch spouse-card${
+        isMatch ? ' is-match' : isSearchResult ? ' is-search-result' : ''
+      }`}
+      style={{
+        position: 'absolute',
+        left: `${x - CARD_WIDTH / 2}px`,
+        top: `${y}px`,
+        width: `${CARD_WIDTH}px`,
+        minHeight: `${CARD_HEIGHT}px`,
+      }}
+      onClick={(e) => {
+        e.stopPropagation()
+        onSelectPerson(spouse)
+        openActionModal(spouse)
+      }}
+    >
+      <div className="visual-card-header">
+        <span className="badge badge-m">
+          {spouse.branchMeta?.originalId || spouse.id}
+        </span>
+        {spouse.branchMeta && spouse.branchMeta.type !== 'main' && (
+          <span
+            className={`branch-source-badge branch-${spouse.branchMeta.type}`}
+            title={spouse.branchMeta.treeName}
+          >
+            🧬
+          </span>
+        )}
+      </div>
+      <div className="visual-card-name" dir="auto" title={spouse.name}>
+        {spouse.name}
+      </div>
+      {spouse.wives && spouse.wives.length > 0 ? (
+        renderWifeTagsFor(spouse, root, onSelectPerson, onOpenTree, setExpandedIds)
+      ) : (
+        <div className="visual-card-wives">
+          <span>⚭ زوج {partnerName}</span>
+        </div>
+      )}
+    </div>
+  )
+})
+
+/**
+ * Renders the connector lines and the person/spouse cards.
+ *
+ * This is deliberately a memoized child component: the chart keeps a lot of
+ * transient UI state (rename text, search text, modal fields). If the cards
+ * were rendered inline, every keystroke would re-render thousands of cards and
+ * make editing feel laggy. With memoized cards, typing only re-renders the
+ * small subtree that actually changed.
+ */
+interface TreeNodesLayerProps {
+  layout: ReturnType<typeof computeTreeLayout>
+  zoom: number
+  selectedId: string | null
+  currentId: string | null
+  activeMatch: Person | null
+  matchIds: Set<string>
+  root: Person
+  femalesRelationsMap: ReturnType<typeof getAllFemalesRelations>
+  onSelectPerson: (person: Person) => void
+  openActionModal: (person: Person) => void
+  toggleExpand: (personId: string, event?: React.MouseEvent) => void
+  onOpenTree?: (treeId: string, personId?: string) => void
+  setExpandedIds: React.Dispatch<React.SetStateAction<Set<string>>>
+}
+
+const TreeNodesLayer = memo(function TreeNodesLayer({
+  layout,
+  zoom,
+  selectedId,
+  currentId,
+  activeMatch,
+  matchIds,
+  root,
+  femalesRelationsMap,
+  onSelectPerson,
+  openActionModal,
+  toggleExpand,
+  onOpenTree,
+  setExpandedIds,
+}: TreeNodesLayerProps) {
+  return (
+    <>
+      <TreeLinksLayer layout={layout} zoom={zoom} />
+
+      {/* Node Cards */}
+      {layout.nodes.map((node) => {
+        const isMatch = Boolean(activeMatch && activeMatch.id === node.person.id)
+        return (
+          <TreeNodeCard
+            key={node.person.id}
+            person={node.person}
+            x={node.x}
+            y={node.y}
+            hasChildren={node.hasChildren}
+            isExpanded={node.isExpanded}
+            isSelected={selectedId === node.person.id}
+            isCurrent={currentId === node.person.id}
+            isMatch={isMatch}
+            isSearchResult={!isMatch && matchIds.has(node.person.id)}
+            compact={zoom < 0.45}
+            root={root}
+            femaleRelations={femalesRelationsMap.get(node.person.id)}
+            onSelectPerson={onSelectPerson}
+            openActionModal={openActionModal}
+            toggleExpand={toggleExpand}
+            onOpenTree={onOpenTree}
+            setExpandedIds={setExpandedIds}
+          />
+        )
+      })}
+
+      {/* Linked Spouse Cards (husband of daughter-branch) */}
+      {layout.nodes.filter((n) => n.spouseNode).map((node) => {
+        const sp = node.spouseNode!
+        const isMatch = Boolean(activeMatch && activeMatch.id === sp.person.id)
+        return (
+          <SpouseCard
+            key={`spouse-card-${sp.person.id}`}
+            spouse={sp.person}
+            partnerName={node.person.name}
+            x={sp.x}
+            y={sp.y}
+            isMatch={isMatch}
+            isSearchResult={!isMatch && matchIds.has(sp.person.id)}
+            root={root}
+            onSelectPerson={onSelectPerson}
+            openActionModal={openActionModal}
+            onOpenTree={onOpenTree}
+            setExpandedIds={setExpandedIds}
+          />
+        )
+      })}
+    </>
+  )
+})
+
 export function VisualTreeChart({
   root,
   selectedId,
@@ -245,7 +743,6 @@ export function VisualTreeChart({
   currentTreeName,
   availableTrees,
   onSelectPerson,
-  onGoToEditorForPerson,
   onRenamePerson,
   onAddChildrenBatch,
   onDeletePerson,
@@ -302,6 +799,9 @@ export function VisualTreeChart({
 
   // Search state
   const [searchQuery, setSearchQuery] = useState('')
+  // Keep the input responsive: the expensive match scan runs against the
+  // deferred value so a keystroke paints before the whole tree is searched.
+  const deferredSearchQuery = useDeferredValue(searchQuery)
   const [matchIndex, setMatchIndex] = useState(0)
 
   // Node action modal state
@@ -386,6 +886,10 @@ export function VisualTreeChart({
   }, [actionPerson?.wives, root, currentTreeId])
 
   const searchableTreeFemales = useMemo(() => {
+    // This list is only visible inside the wives tab. Building lineage labels
+    // for every female in a 2,000+ person tree on every chart render was the
+    // main cost of switching the unified view on.
+    if (modalTab !== 'wives') return []
     const list = collectFemales(root)
     return list.map((female) => {
       const lineage = getLineageText(root, female.id)
@@ -395,7 +899,7 @@ export function VisualTreeChart({
         isLinked: linkedFemaleIds.has(female.id),
       }
     })
-  }, [root, linkedFemaleIds])
+  }, [root, linkedFemaleIds, modalTab])
 
   const filteredTreeFemales = useMemo(() => {
     const available = searchableTreeFemales.filter((f) => !f.isLinked)
@@ -419,8 +923,8 @@ export function VisualTreeChart({
 
   // Find search matches across the whole tree
   const matches = useMemo(() => {
-    if (!searchQuery.trim()) return []
-    const q = searchable(searchQuery)
+    if (!deferredSearchQuery.trim()) return []
+    const q = searchable(deferredSearchQuery)
     if (!q) return []
     const rawTokens = q.split(/\s+/).filter(Boolean)
     // Filter out genealogy connectors unless they are the only search token
@@ -474,9 +978,12 @@ export function VisualTreeChart({
 
     search(root, [])
     return result
-  }, [root, searchQuery])
+  }, [root, deferredSearchQuery])
 
   const activeMatch = matches.length > 0 ? matches[matchIndex % matches.length] : null
+
+  // Set form of the matches used for O(1) per-card lookups while rendering.
+  const matchIds = useMemo(() => new Set(matches.map((m) => m.id)), [matches])
   const lastCenteredMatchRef = useRef<string | null>(null)
 
   // Auto-expand path to active search match
@@ -611,7 +1118,7 @@ export function VisualTreeChart({
     }
   }
 
-  function toggleExpand(personId: string, event?: React.MouseEvent) {
+  const toggleExpand = useCallback((personId: string, event?: React.MouseEvent) => {
     if (event) {
       event.preventDefault()
       event.stopPropagation()
@@ -622,7 +1129,7 @@ export function VisualTreeChart({
       else next.add(personId)
       return next
     })
-  }
+  }, [])
 
   function expandAll() {
     setExpandedIds(collectAllNodeIds(root))
@@ -632,7 +1139,7 @@ export function VisualTreeChart({
     setExpandedIds(new Set([root.id]))
   }
 
-  function openActionModal(person: Person) {
+  const openActionModal = useCallback((person: Person) => {
     setActionPerson(person)
     setModalTab(effectiveEditMode ? 'options' : 'info')
     setEditName(person.name)
@@ -645,12 +1152,61 @@ export function VisualTreeChart({
     setNewWifeTribute('')
     setTribeSearchQuery('')
     setDeleteConfirm(false)
-  }
+  }, [effectiveEditMode])
 
   function closeActionModal() {
     setActionPerson(null)
     setDeleteConfirm(false)
   }
+
+  function addWifeToActionPerson(wife: Wife) {
+    if (!actionPerson || !onAddWife) return
+    onAddWife(actionPerson.id, wife)
+    setActionPerson((prev) => {
+      if (!prev) return prev
+      if (
+        wife.type === 'tree' &&
+        prev.wives.some(
+          (existing) =>
+            existing.type === 'tree' &&
+            existing.personId === wife.personId &&
+            (existing.treeId ?? '') === (wife.treeId ?? ''),
+        )
+      ) {
+        return prev
+      }
+      return { ...prev, wives: [...prev.wives, wife] }
+    })
+  }
+
+  function removeWifeFromActionPerson(index: number) {
+    if (!actionPerson || !onRemoveWife) return
+    onRemoveWife(actionPerson.id, index)
+    setActionPerson((prev) =>
+      prev ? { ...prev, wives: prev.wives.filter((_, i) => i !== index) } : prev,
+    )
+  }
+
+  /**
+   * In a unified view only nodes that belong to the current base tree may be
+   * edited. Branch nodes and the virtual common root are display-only.
+   */
+  function canEditPerson(person: Person): boolean {
+    if (person.branchMeta?.isVirtualContainer) return false
+    if (isUnifiedView && person.branchMeta && person.branchMeta.type !== 'main') return false
+    return true
+  }
+
+  // Stable dispatchers so the memoized cards do not all re-render just because
+  // the parent page created new inline callbacks on its own re-render.
+  const latestHandlersRef = useRef({ onSelectPerson, onOpenTree })
+  latestHandlersRef.current = { onSelectPerson, onOpenTree }
+  const handleSelectPerson = useCallback((person: Person) => {
+    latestHandlersRef.current.onSelectPerson(person)
+  }, [])
+  const handleOpenTree = useCallback((treeId: string, personId?: string) => {
+    latestHandlersRef.current.onOpenTree?.(treeId, personId)
+  }, [])
 
   return (
     <div className="visual-tree-container" ref={containerRef}>
@@ -796,301 +1352,21 @@ export function VisualTreeChart({
             transformOrigin: '0 0',
           }}
         >
-          {/* Connecting SVG Lines */}
-          <svg
-            className="visual-tree-svg"
-            style={{
-              width: `${Math.max(6000, layout.bounds.width + 2000)}px`,
-              height: `${Math.max(4000, layout.bounds.height + 1500)}px`,
-              position: 'absolute',
-              top: 0,
-              left: 0,
-              pointerEvents: 'none',
-              overflow: 'visible',
-            }}
-          >
-            {layout.links.map((link) => {
-              const midY = (link.y1 + link.y2) / 2
-              const path = `M ${link.x1} ${link.y1} C ${link.x1} ${midY}, ${link.x2} ${midY}, ${link.x2} ${link.y2}`
-              return (
-                <path
-                  key={link.id}
-                  d={path}
-                  fill="none"
-                  stroke="var(--border-strong)"
-                  strokeWidth={Math.max(1.5, 2 / zoom)}
-                  className="tree-link-path"
-                />
-              )
-            })}
-            {/* Spouse connector lines (horizontal between wife & husband) */}
-            {layout.nodes.filter((n) => n.spouseNode).map((node) => {
-              const sp = node.spouseNode!
-              const wifeRight = node.x - CARD_WIDTH / 2
-              const husbandLeft = sp.x + CARD_WIDTH / 2
-              const lineY = node.y + CARD_HEIGHT / 2
-              const midX = (node.x + sp.x) / 2
-              return (
-                <g key={`spouse-${node.person.id}`}>
-                  {/* Horizontal line between the two cards */}
-                  <line
-                    x1={husbandLeft}
-                    y1={lineY}
-                    x2={wifeRight}
-                    y2={lineY}
-                    stroke="var(--female)"
-                    strokeWidth={Math.max(2, 2.5 / zoom)}
-                    strokeDasharray="6 3"
-                    className="tree-spouse-line"
-                  />
-                  {/* Small heart/ring symbol at midpoint */}
-                  <circle
-                    cx={midX}
-                    cy={lineY}
-                    r={Math.max(4, 5 / zoom)}
-                    fill="var(--female)"
-                    opacity={0.7}
-                  />
-                  {/* Vertical drop line from midpoint down to CARD_HEIGHT */}
-                  {node.children.length > 0 && node.isExpanded && (
-                    <line
-                      x1={midX}
-                      y1={lineY}
-                      x2={midX}
-                      y2={node.y + CARD_HEIGHT}
-                      stroke="var(--border-strong)"
-                      strokeWidth={Math.max(1.5, 2 / zoom)}
-                    />
-                  )}
-                </g>
-              )
-            })}
-          </svg>
-
-          {/* Node Cards */}
-          {layout.nodes.map((node) => {
-            const isSelected = selectedId === node.person.id
-            const isCurrent = currentId === node.person.id
-            const isMatch = activeMatch && activeMatch.id === node.person.id
-            const isSearchResult = !isMatch && matches.some((m) => m.id === node.person.id)
-            const isMale = node.person.gender === 'M'
-
-            return (
-              <div
-                key={node.person.id}
-                className={`visual-node-card ${isMale ? 'card-m' : 'card-f'}${
-                  isSelected ? ' is-selected' : ''
-                }${isCurrent ? ' is-current' : ''}${isMatch ? ' is-match' : isSearchResult ? ' is-search-result' : ''}${
-                  zoom < 0.45 ? ' compact-mode' : ''
-                }${node.person.branchMeta && node.person.branchMeta.type !== 'main' ? ' card-branch' : ''}${
-                  node.person.branchMeta?.isVirtualContainer ? ' card-virtual-root' : ''
-                }`}
-                style={{
-                  position: 'absolute',
-                  left: `${node.x - CARD_WIDTH / 2}px`,
-                  top: `${node.y}px`,
-                  width: `${CARD_WIDTH}px`,
-                  minHeight: `${CARD_HEIGHT}px`,
-                }}
-                onClick={(e) => {
-                  e.stopPropagation()
-                  onSelectPerson(node.person)
-                  openActionModal(node.person)
-                }}
-                onDoubleClick={(e) => {
-                  e.stopPropagation()
-                  onSelectPerson(node.person)
-                  openActionModal(node.person)
-                }}
-              >
-                <div className="visual-card-header">
-                  {!node.person.branchMeta?.isVirtualContainer && (
-                    <span className={`badge badge-${node.person.gender.toLowerCase()}`}>
-                      {node.person.branchMeta?.originalId || node.person.id}
-                    </span>
-                  )}
-                  {node.person.branchMeta && node.person.branchMeta.type !== 'main' && !node.person.branchMeta.isVirtualContainer && (
-                    <span
-                      className={`branch-source-badge branch-${node.person.branchMeta.type}`}
-                      title={node.person.branchMeta.treeName}
-                    >
-                      {node.person.branchMeta.type === 'daughter-branch' ? '🧬' : node.person.branchMeta.type === 'brother-branch' ? '🤝' : '🌿'}
-                    </span>
-                  )}
-                  <div className="visual-card-header-actions" onClick={(e) => e.stopPropagation()}>
-                    {node.hasChildren && (
-                      <button
-                        type="button"
-                        className="visual-toggle-btn"
-                        onClick={(e) => toggleExpand(node.person.id, e)}
-                        title={node.isExpanded ? 'طي الفروع' : 'توسيع الفروع'}
-                      >
-                        {node.isExpanded ? '−' : `+ ${node.person.children.length}`}
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      className="visual-node-options-btn"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        onSelectPerson(node.person)
-                        openActionModal(node.person)
-                      }}
-                      title="خيارات وتفاصيل الشخص"
-                      aria-label="خيارات"
-                    >
-                      ⋯
-                    </button>
-                  </div>
-                </div>
-
-                <div className="visual-card-name" dir="auto" title={node.person.name}>
-                  {node.person.name}
-                </div>
-
-                {node.person.wives && node.person.wives.length > 0 && (
-                  <div className="visual-card-wives">
-                    {node.person.wives.map((wife, idx) => {
-                      const linkedFemale = resolveWife(wife, root)
-                      const wifeTreeName = wife.type === 'tree' ? wife.treeName : undefined
-                      const wifeTreeId = wife.type === 'tree' ? wife.treeId : undefined
-                      if (linkedFemale) {
-                        const displayId = linkedFemale.branchMeta?.originalId || linkedFemale.id
-                        const treeLabel = wifeTreeName || linkedFemale.branchMeta?.treeName
-                        const isCrossTree = Boolean(
-                          wifeTreeId ||
-                            (linkedFemale.branchMeta && linkedFemale.branchMeta.type !== 'main'),
-                        )
-                        const icon = isCrossTree ? '🌳' : '🔗'
-                        const tooltip = treeLabel
-                          ? `زوجة من شجرة (${treeLabel}): ${linkedFemale.name} (${displayId}) - انقر للانتقال إليها`
-                          : `زوجة من السجل: ${linkedFemale.name} (${displayId}) - انقر للانتقال إليها`
-
-                        return (
-                          <span
-                            key={idx}
-                            className={`wife-link-tag ${isCrossTree ? 'wife-cross-tree-tag' : ''}`}
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              const path = findPathToNode(root, linkedFemale.id)
-                              setExpandedIds((prev) => {
-                                const next = new Set(prev)
-                                path.forEach((id) => next.add(id))
-                                return next
-                              })
-                              onSelectPerson(linkedFemale)
-                            }}
-                            title={tooltip}
-                          >
-                            {icon} {linkedFemale.name} ({displayId})
-                          </span>
-                        )
-                      }
-
-                      if (wife.type === 'tree') {
-                        const treeLabel = wife.treeName || 'شجرة أخرى'
-                        const displayName = wife.personName || wife.personId
-                        const tooltip = wife.lineageLabel
-                          ? `${wife.lineageLabel} [من: ${treeLabel}]`
-                          : `زوجة من: ${treeLabel} (${wife.personId})`
-                        const canClick = Boolean(wife.treeId && onOpenTree)
-
-                        return (
-                          <span
-                            key={idx}
-                            className={`wife-link-tag wife-cross-tree-tag ${canClick ? 'is-clickable' : ''}`}
-                            onClick={(e) => {
-                              if (canClick && wife.treeId) {
-                                e.stopPropagation()
-                                onOpenTree!(wife.treeId, wife.personId)
-                              }
-                            }}
-                            title={canClick ? `${tooltip} - انقر لفتح شجرتها` : tooltip}
-                          >
-                            🌳 {displayName} [{treeLabel}]
-                          </span>
-                        )
-                      }
-
-                      return <span key={idx}>⚭ {wifeShortLabel(wife, root)}</span>
-                    })}
-                  </div>
-                )}
-
-                {!isMale && (() => {
-                  const fInfo = femalesRelationsMap.get(node.person.id)
-                  if (!fInfo || (fInfo.husbands.length === 0 && fInfo.sons.length === 0)) return null
-                  return (
-                    <div className="visual-card-female-relations">
-                      {fInfo.husbands.length > 0 && (
-                        <div
-                          className="visual-card-husband"
-                          title={`زوجها: ${fInfo.husbands.map((h) => h.name).join('، ')}`}
-                        >
-                          ⚭ {fInfo.husbands.map((h) => h.name).join('، ')}
-                        </div>
-                      )}
-                      {fInfo.sons.length > 0 && (
-                        <div
-                          className="visual-card-sons"
-                          title={`أبناؤها (${fInfo.sons.length}): ${fInfo.sons.map((s) => s.name).join('، ')}`}
-                        >
-                          👦 {fInfo.sons.length === 1 ? fInfo.sons[0].name : `${fInfo.sons.slice(0, 2).map((s) => s.name).join('، ')}${fInfo.sons.length > 2 ? '…' : ''}`}
-                        </div>
-                      )}
-                    </div>
-                  )
-                })()}
-              </div>
-            )
-          })}
-
-          {/* Linked Spouse Cards (husband of daughter-branch) */}
-          {layout.nodes.filter((n) => n.spouseNode).map((node) => {
-            const sp = node.spouseNode!
-            const isSpouseMatch = activeMatch && activeMatch.id === sp.person.id
-            const isSpouseSearchResult = !isSpouseMatch && matches.some((m) => m.id === sp.person.id)
-            return (
-              <div
-                key={`spouse-card-${sp.person.id}`}
-                className={`visual-node-card card-m card-branch spouse-card${
-                  isSpouseMatch ? ' is-match' : isSpouseSearchResult ? ' is-search-result' : ''
-                }`}
-                style={{
-                  position: 'absolute',
-                  left: `${sp.x - CARD_WIDTH / 2}px`,
-                  top: `${sp.y}px`,
-                  width: `${CARD_WIDTH}px`,
-                  minHeight: `${CARD_HEIGHT}px`,
-                }}
-                onClick={(e) => {
-                  e.stopPropagation()
-                  onSelectPerson(sp.person)
-                  openActionModal(sp.person)
-                }}
-              >
-                <div className="visual-card-header">
-                  <span className="badge badge-m">
-                    {sp.person.branchMeta?.originalId || sp.person.id}
-                  </span>
-                  {sp.person.branchMeta && sp.person.branchMeta.type !== 'main' && (
-                    <span
-                      className={`branch-source-badge branch-${sp.person.branchMeta.type}`}
-                      title={sp.person.branchMeta.treeName}
-                    >
-                      🧬
-                    </span>
-                  )}
-                </div>
-                <div className="visual-card-name" dir="auto" title={sp.person.name}>
-                  {sp.person.name}
-                </div>
-                <div className="visual-card-wives">
-                  <span>⚭ زوج {node.person.name}</span>
-                </div>
-              </div>
-            )
-          })}
+          <TreeNodesLayer
+            layout={layout}
+            zoom={zoom}
+            selectedId={selectedId}
+            currentId={currentId}
+            activeMatch={activeMatch}
+            matchIds={matchIds}
+            root={root}
+            femalesRelationsMap={femalesRelationsMap}
+            onSelectPerson={handleSelectPerson}
+            openActionModal={openActionModal}
+            toggleExpand={toggleExpand}
+            onOpenTree={handleOpenTree}
+            setExpandedIds={setExpandedIds}
+          />
         </div>
       </div>
 
@@ -1448,14 +1724,13 @@ export function VisualTreeChart({
                 </button>
 
                 {(() => {
-                  const isVirtualRoot = Boolean(actionPerson.branchMeta?.isVirtualContainer)
                   const isOtherBranch = Boolean(
                     isUnifiedView &&
                     actionPerson.branchMeta &&
                     actionPerson.branchMeta.type !== 'main' &&
                     !actionPerson.branchMeta.isVirtualContainer
                   )
-                  const canEditThisPerson = !isVirtualRoot && !isOtherBranch
+                  const canEditThisPerson = canEditPerson(actionPerson)
 
                   return (
                     <>
@@ -1511,20 +1786,7 @@ export function VisualTreeChart({
                 })()}
 
 
-                {onGoToEditorForPerson && (
-                  <button
-                    type="button"
-                    className="modal-action-btn"
-                    onClick={() => {
-                      closeActionModal()
-                      onGoToEditorForPerson(actionPerson)
-                    }}
-                  >
-                    📝 فتح النموذج الكامل في الصفحة الأخرى
-                  </button>
-                )}
-
-                {actionPerson.id !== root.id && onDeletePerson && (
+                {actionPerson.id !== root.id && onDeletePerson && canEditPerson(actionPerson) && (
                   <div className="modal-delete-section">
                     {deleteConfirm ? (
                       <div className="delete-confirm-row">
@@ -1692,7 +1954,7 @@ export function VisualTreeChart({
                             <button
                               type="button"
                               className="compact-button danger-text"
-                              onClick={() => onRemoveWife(actionPerson.id, idx)}
+                              onClick={() => removeWifeFromActionPerson(idx)}
                               title="حذف الزوجة"
                             >
                               حذف
@@ -1753,7 +2015,7 @@ export function VisualTreeChart({
                               className="tribe-wife-link-btn"
                               onClick={() => {
                                 if (onAddWife) {
-                                  onAddWife(actionPerson.id, createTreeWife(item.female.id))
+                                  addWifeToActionPerson(createTreeWife(item.female.id))
                                   setTribeSearchQuery('')
                                 }
                               }}
@@ -1799,8 +2061,7 @@ export function VisualTreeChart({
                       disabled={!newWifeName.trim()}
                       onClick={() => {
                         if (newWifeName.trim() && onAddWife) {
-                          onAddWife(
-                            actionPerson.id,
+                          addWifeToActionPerson(
                             createExternalWife(newWifeName, newWifeFamily, newWifeTribute),
                           )
                           setNewWifeName('')
@@ -1839,7 +2100,7 @@ export function VisualTreeChart({
           availableTrees={availableTrees}
           onSelect={(personId, extra) => {
             if (onAddWife) {
-              onAddWife(actionPerson.id, createTreeWife(personId, extra))
+              addWifeToActionPerson(createTreeWife(personId, extra))
             }
             setShowTreeWifePicker(false)
           }}

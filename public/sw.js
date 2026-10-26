@@ -1,6 +1,5 @@
-const CACHE_NAME = 'nasab-app-v1';
+const CACHE_NAME = 'nasab-app-v2';
 
-// Files to cache immediately when installed
 const PRECACHE_ASSETS = [
   '/',
   '/index.html',
@@ -10,72 +9,71 @@ const PRECACHE_ASSETS = [
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(PRECACHE_ASSETS);
-    })
+    caches.open(CACHE_NAME).then((cache) => cache.addAll(PRECACHE_ASSETS))
   );
   self.skipWaiting();
 });
 
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys().then((cacheNames) => {
-      return Promise.all(
+    caches.keys().then((cacheNames) =>
+      Promise.all(
         cacheNames.map((cache) => {
-          if (cache !== CACHE_NAME) {
-            return caches.delete(cache);
-          }
+          if (cache !== CACHE_NAME) return caches.delete(cache);
         })
-      );
-    })
+      )
+    )
   );
   self.clients.claim();
 });
 
-// Cache-first, network fallback & update strategy
+async function networkFirst(request, fallbackUrl) {
+  try {
+    const response = await fetch(request);
+    if (response && response.status === 200) {
+      const cache = await caches.open(CACHE_NAME);
+      await cache.put(request, response.clone());
+    }
+    return response;
+  } catch {
+    const cached = await caches.match(request);
+    if (cached) return cached;
+    if (fallbackUrl) {
+      const fallback = await caches.match(fallbackUrl);
+      if (fallback) return fallback;
+    }
+    return new Response('Offline', { status: 533, statusText: 'Offline' });
+  }
+}
+
+async function cacheFirst(request) {
+  const cached = await caches.match(request);
+  if (cached) return cached;
+  const response = await fetch(request);
+  if (response && response.status === 200) {
+    const cache = await caches.open(CACHE_NAME);
+    await cache.put(request, response.clone());
+  }
+  return response;
+}
+
 self.addEventListener('fetch', (event) => {
-  // Only intercept GET requests
   if (event.request.method !== 'GET') return;
 
-  // Skip Supabase API requests (let network handle cloud sync)
   const url = new URL(event.request.url);
   if (url.hostname.includes('supabase')) return;
 
-  event.respondWith(
-    caches.match(event.request).then((cachedResponse) => {
-      if (cachedResponse) {
-        // Fetch fresh copy in background if online
-        fetch(event.request)
-          .then((networkResponse) => {
-            if (networkResponse && networkResponse.status === 200) {
-              caches.open(CACHE_NAME).then((cache) => {
-                cache.put(event.request, networkResponse.clone());
-              });
-            }
-          })
-          .catch(() => {/* Offline - keep using cached */});
+  // Navigations must see the newest index.html so a deploy cannot pin the app
+  // to an old hashed bundle. Hashed same-origin assets are safe to cache.
+  if (event.request.mode === 'navigate') {
+    event.respondWith(networkFirst(event.request, '/index.html'));
+    return;
+  }
 
-        return cachedResponse;
-      }
+  if (url.origin === self.location.origin) {
+    event.respondWith(cacheFirst(event.request));
+    return;
+  }
 
-      // Network request fallback
-      return fetch(event.request)
-        .then((networkResponse) => {
-          if (networkResponse && networkResponse.status === 200 && event.request.url.startsWith('http')) {
-            const responseToCache = networkResponse.clone();
-            caches.open(CACHE_NAME).then((cache) => {
-              cache.put(event.request, responseToCache);
-            });
-          }
-          return networkResponse;
-        })
-        .catch(() => {
-          // If offline and request is for page navigation, return cached root page
-          if (event.request.mode === 'navigate') {
-            return caches.match('/') || caches.match('/index.html');
-          }
-          return new Response('Offline', { status: 533, statusText: 'Offline' });
-        });
-    })
-  );
+  event.respondWith(networkFirst(event.request));
 });

@@ -124,7 +124,10 @@ function TreeNode({
                   const displayId = linked.branchMeta?.originalId || linked.id
                   const isCross = Boolean(
                     wife.type === 'tree' &&
-                      (wife.treeId || (linked.branchMeta && linked.branchMeta.type !== 'main')),
+                      ((wife.treeId && wife.treeId !== person.branchMeta?.treeId) ||
+                        (linked.branchMeta &&
+                          linked.branchMeta.type !== 'main' &&
+                          linked.branchMeta.treeId !== person.branchMeta?.treeId)),
                   )
                   const wifeTreeName = wife.type === 'tree' ? wife.treeName : undefined
                   const treeLabel = wifeTreeName || linked.branchMeta?.treeName
@@ -138,7 +141,8 @@ function TreeNode({
                       }}
                       title={treeLabel ? `زوجة من (${treeLabel}): ${linked.name} (${displayId})` : `زوجة من السجل: ${linked.name} (${displayId})`}
                     >
-                      {isCross ? '🌳' : '🔗'} {linked.name} ({displayId})
+                      {isCross ? '🌳' : '🔗'} {linked.name}
+                      {isCross && treeLabel ? ` — ${treeLabel}` : ` (${displayId})`}
                     </span>
                   )
                 }

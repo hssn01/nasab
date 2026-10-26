@@ -176,9 +176,12 @@ export function TreeWifePicker({
   }, [femalesWithLineage, query, fatherFilter])
 
   function handleSelect(item: FemaleWithLineage) {
+    // A wife picked from the current tree is a same-tree wife. Do not stamp
+    // her with treeId: that would make resolveWife treat her as coming from
+    // another tree (and in a unified view she would not resolve at all).
     onSelect(item.person.id, {
-      treeId: isCurrentTree ? currentTreeId : selectedTreeId,
-      treeName: activeTreeName,
+      treeId: isCurrentTree ? undefined : selectedTreeId,
+      treeName: isCurrentTree ? undefined : activeTreeName,
       personName: item.person.name,
       lineageLabel: item.lineageLabel,
     })

@@ -10,6 +10,7 @@ import {
   nextFemaleId,
   nextMaleId,
   normalizePersonTree,
+  orderChildrenByCode,
 } from './treeUtils'
 import {
   fetchTreeState,
@@ -88,6 +89,7 @@ export function useTreeBuilder(treeId: string) {
   const [isSyncing, setIsSyncing] = useState(false)
 
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const cacheTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   // Prevent saving stale cache back to Supabase before the cloud fetch completes
   const hasLoadedRef = useRef(false)
 
@@ -95,12 +97,43 @@ export function useTreeBuilder(treeId: string) {
   const stateRef = useRef(state)
   stateRef.current = state
 
+  // Serialize saves so a slow cloud write cannot overlap a newer edit. If a
+  // save is already running, keep only the latest pending state.
+  const saveInFlightRef = useRef(false)
+  const pendingSaveRef = useRef<{ id: string; state: TreeState } | null>(null)
+  // Explicit deletes are passed to the cloud save so they can be applied
+  // before sibling re-indexing / without looking like a partially loaded tree.
+  const removedPersonIdsRef = useRef<Set<string>>(new Set())
+  const removedUnionIdsRef = useRef<Set<string>>(new Set())
+  const persistState = useCallback(function persist(targetId: string, stateToSave: TreeState) {
+    if (saveInFlightRef.current) {
+      pendingSaveRef.current = { id: targetId, state: stateToSave }
+      return
+    }
+    saveInFlightRef.current = true
+    const removedPersonIds = [...removedPersonIdsRef.current]
+    const removedUnionIds = [...removedUnionIdsRef.current]
+    void saveTreeState(targetId, stateToSave, { removedPersonIds, removedUnionIds })
+      .then((saved) => {
+        if (!saved) return
+        for (const personId of removedPersonIds) removedPersonIdsRef.current.delete(personId)
+        for (const unionId of removedUnionIds) removedUnionIdsRef.current.delete(unionId)
+      })
+      .catch((err) => console.warn('[nasab] save failed:', err))
+      .finally(() => {
+        saveInFlightRef.current = false
+        const pending = pendingSaveRef.current
+        pendingSaveRef.current = null
+        if (pending) persist(pending.id, pending.state)
+      })
+  }, [])
+
   // Track online/offline status and auto-sync when connection returns
   useEffect(() => {
     function handleOnline() {
       setIsOffline(false)
       if (hasLoadedRef.current) {
-        void saveTreeState(treeId, state)
+        persistState(treeId, state)
       }
     }
     function handleOffline() {
@@ -113,18 +146,65 @@ export function useTreeBuilder(treeId: string) {
       window.removeEventListener('online', handleOnline)
       window.removeEventListener('offline', handleOffline)
     }
-  }, [treeId, state])
+  }, [treeId, state, persistState])
 
   const isDirtyRef = useRef(false)
+  const pendingTreeIdRef = useRef(treeId)
   const setDirtyState = useCallback((updater: TreeState | ((prev: TreeState) => TreeState)) => {
     isDirtyRef.current = true
     setState(updater)
   }, [])
 
+  /**
+   * Persist a pending debounced edit immediately. Used when the tab is hidden,
+   * the page is unloaded, the tree changes, or the builder unmounts.
+   */
+  const flushPendingSave = useCallback(() => {
+    if (!isDirtyRef.current) return
+    const targetId = pendingTreeIdRef.current
+    if (!targetId || !hasLoadedRef.current) return
+    const stateToSave = stateRef.current
+    isDirtyRef.current = false
+    persistState(targetId, stateToSave)
+  }, [persistState])
+
+  // Flush the previous tree before the treeId changes (the component stays
+  // mounted when navigating between trees in the stepped editor).
+  useEffect(() => {
+    if (pendingTreeIdRef.current !== treeId) {
+      flushPendingSave()
+      pendingTreeIdRef.current = treeId
+    }
+  }, [treeId, flushPendingSave])
+
+  useEffect(() => {
+    return () => {
+      flushPendingSave()
+    }
+  }, [flushPendingSave])
+
+  useEffect(() => {
+    function handlePageHide() {
+      flushPendingSave()
+    }
+    function handleVisibilityChange() {
+      if (document.visibilityState === 'hidden') flushPendingSave()
+    }
+
+    window.addEventListener('pagehide', handlePageHide)
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    return () => {
+      window.removeEventListener('pagehide', handlePageHide)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
+  }, [flushPendingSave])
+
   // ── Initial cloud fetch ──
   useEffect(() => {
     hasLoadedRef.current = false
     isDirtyRef.current = false
+    removedPersonIdsRef.current.clear()
+    removedUnionIdsRef.current.clear()
     setIsSyncing(true)
 
     // Reset local state to cache (or empty) for the new treeId
@@ -167,7 +247,13 @@ export function useTreeBuilder(treeId: string) {
 
   // ── Cache every state change locally (instant, synchronous) ──
   useEffect(() => {
-    setCachedState(treeId, state)
+    if (cacheTimerRef.current) clearTimeout(cacheTimerRef.current)
+    cacheTimerRef.current = setTimeout(() => {
+      setCachedState(treeId, state)
+    }, 800)
+    return () => {
+      if (cacheTimerRef.current) clearTimeout(cacheTimerRef.current)
+    }
   }, [state, treeId])
 
   // ── Debounced save (saves to IndexedDB and pushes to cloud if online) ──
@@ -175,13 +261,13 @@ export function useTreeBuilder(treeId: string) {
     if (!hasLoadedRef.current || !isDirtyRef.current) return
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
     saveTimerRef.current = setTimeout(() => {
-      void saveTreeState(treeId, state)
       isDirtyRef.current = false
+      persistState(treeId, state)
     }, 400)
     return () => {
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
     }
-  }, [state, treeId])
+  }, [state, treeId, persistState])
 
 
   // ── Tree builder actions (unchanged from before) ──
@@ -221,13 +307,16 @@ export function useTreeBuilder(treeId: string) {
             ? nextMaleId(prev.maleCounter)
             : nextFemaleId(prev.femaleCounter + 1)
 
-        parent.children.push({
-          id,
-          name: name.trim(),
-          gender,
-          children: [],
-          wives: [],
-        })
+        parent.children = orderChildrenByCode([
+          ...parent.children,
+          {
+            id,
+            name: name.trim(),
+            gender,
+            children: [],
+            wives: [],
+          },
+        ])
 
         return {
           ...prev,
@@ -258,13 +347,16 @@ export function useTreeBuilder(treeId: string) {
         const parent = findPerson(root, parentId)
         if (!parent) return prev
 
-        parent.children.push({
-          id: newId,
-          name: trimmed,
-          gender,
-          children: [],
-          wives: [],
-        })
+        parent.children = orderChildrenByCode([
+          ...parent.children,
+          {
+            id: newId,
+            name: trimmed,
+            gender,
+            children: [],
+            wives: [],
+          },
+        ])
 
         const males = collectMalesDFS(root)
         const malesQueue = males.map((m) => m.id)
@@ -362,7 +454,9 @@ export function useTreeBuilder(treeId: string) {
     const sons = reconcile(sonNames, existingSons, 'M')
     const daughters = reconcile(daughterNames, existingDaughters, 'F')
 
-    parent.children = [...sons, ...daughters]
+    // House order: all sons first, then all daughters, each gender sorted by
+    // its numeric code. This keeps the order stable between saves.
+    parent.children = orderChildrenByCode([...sons, ...daughters])
 
     const males = collectMalesDFS(root)
     const malesQueue = males.map((m) => m.id)
@@ -705,6 +799,13 @@ export function useTreeBuilder(treeId: string) {
   }, [])
 
   const deletePerson = useCallback((personId: string) => {
+    const targetBefore = stateRef.current.root
+      ? findPerson(stateRef.current.root, personId)
+      : null
+    if (targetBefore?.dbId) removedPersonIdsRef.current.add(targetBefore.dbId)
+    for (const wife of targetBefore?.wives ?? []) {
+      if (wife.dbId) removedUnionIdsRef.current.add(wife.dbId)
+    }
     setDirtyState((prev) => {
       if (!prev.root || prev.root.id === personId) return prev
 
@@ -843,6 +944,8 @@ export function useTreeBuilder(treeId: string) {
   }, [state.root, state.currentPersonId])
 
   const addWifeToPerson = useCallback((personId: string, wife: Wife) => {
+    // Re-adding a wife before the debounced save must cancel her pending delete.
+    if (wife.dbId) removedUnionIdsRef.current.delete(wife.dbId)
     setDirtyState((prev) => {
       if (!prev.root) return prev
       const root = cloneRoot(prev.root)
@@ -861,7 +964,12 @@ export function useTreeBuilder(treeId: string) {
 
       person.wives.push(wife)
       if (person.wives.length === 1) {
+        const wifePersonId = wife.type === 'tree' ? wife.personId : undefined
         for (const child of person.children) {
+          // A same-tree wife can also be one of the children (e.g. test data
+          // where the only woman is the daughter). Never make her her own
+          // mother while filling in the missing mothers.
+          if (child.id === wifePersonId) continue
           if (!child.mother) child.mother = wife.id
         }
       }
@@ -871,6 +979,11 @@ export function useTreeBuilder(treeId: string) {
 
   const removeWifeFromPerson = useCallback(
     (personId: string, index: number) => {
+      const personBefore = stateRef.current.root
+        ? findPerson(stateRef.current.root, personId)
+        : null
+      const wifeBefore = personBefore?.wives[index]
+      if (wifeBefore?.dbId) removedUnionIdsRef.current.add(wifeBefore.dbId)
       setDirtyState((prev) => {
         if (!prev.root) return prev
         const root = cloneRoot(prev.root)

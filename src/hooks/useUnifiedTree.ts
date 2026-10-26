@@ -5,8 +5,7 @@ import {
   type ConnectedBranchInput,
   type UnifiedTreeResult,
 } from '../treeUtils'
-import { fetchTreeState, getCachedState } from '../db'
-import { getSession } from '../localDb'
+import { fetchTreeState } from '../db'
 
 interface UseUnifiedTreeOptions {
   mainTreeId: string | null
@@ -25,10 +24,10 @@ interface UseUnifiedTreeReturn {
 }
 
 async function loadBranchState(id: string): Promise<TreeState | null> {
-  const cached = getCachedState(id)
-  if (cached) return cached
-  const local = await getSession(id)
-  if (local?.state) return local.state
+  // Always try the cloud copy first. A stale branch cache used to shadow a
+  // repaired cloud tree for the whole session, so a branch could keep showing
+  // missing wives even after the database was fixed. fetchTreeState already
+  // falls back to the cache/offline state when the network is unavailable.
   return fetchTreeState(id)
 }
 
@@ -43,40 +42,39 @@ export function useUnifiedTree({
   const [unifiedResult, setUnifiedResult] = useState<UnifiedTreeResult | null>(null)
   const [isLoading, setIsLoading] = useState(false)
 
-  // Memoize to prevent new array reference on every render
+  const branchIds = sessions
+    .filter((s) => s.id !== mainTreeId && s.linkedFrom?.mainTreeId === mainTreeId)
+    .map((s) => s.id)
+    .sort()
+    .join(',')
+
+  // Memoize to prevent a new array reference on every render.
   const connectedBranchMetas = useMemo(
     () => sessions.filter((s) => s.id !== mainTreeId && s.linkedFrom?.mainTreeId === mainTreeId),
-    // Use JSON-serialized IDs as stable key so the memo only changes when the
-    // actual set of branch IDs changes, not on every session object re-creation
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [
-      mainTreeId,
-      // Derive a stable primitive from the branch list
-      sessions
-        .filter((s) => s.id !== mainTreeId && s.linkedFrom?.mainTreeId === mainTreeId)
-        .map((s) => s.id)
-        .sort()
-        .join(','),
-    ]
+    [sessions, mainTreeId],
   )
 
   const hasConnectedBranches = connectedBranchMetas.length > 0
 
-  // Use a ref to track whether a build is already in-flight so we don't stack
-  const buildInFlight = useRef(false)
+  // Revision counter: each edit increments this so in-flight async builds
+  // for an older revision are discarded rather than overwriting fresh state.
+  const revisionRef = useRef(0)
 
-  // Stable string key so the effect only re-runs when tree IDs actually change
-  const branchIdsKey = useMemo(
-    () => connectedBranchMetas.map((m) => m.id).sort().join(','),
-    [connectedBranchMetas]
-  )
+  // Cache loaded branch states so we don't re-fetch from Supabase on every
+  // local edit — branches only reload when their IDs change.
+  const cachedBranchesRef = useRef<ConnectedBranchInput[] | null>(null)
+  const cachedBranchIdsRef = useRef<string>('')
 
+  // Stable string key so the async branch-load only re-runs when tree IDs change.
+  const branchIdsKey = branchIds
+
+  // ── When there are NO connected branches, update synchronously from mainRoot.
+  // This is the most common case during editing and must be instant.
   useEffect(() => {
     if (!mainRoot || !mainTreeId || !enabled) {
       setUnifiedResult(null)
       return
     }
-
     if (connectedBranchMetas.length === 0) {
       setUnifiedResult({
         root: mainRoot,
@@ -84,11 +82,36 @@ export function useUnifiedTree({
         connectedTreeIds: [mainTreeId],
         isUnified: false,
       })
-      return
+    }
+  // Re-run any time mainRoot reference changes (every edit produces a new object via cloneRoot)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mainRoot, mainTreeId, enabled, connectedBranchMetas.length])
+
+  // ── When there ARE connected branches, load them once (per branchIdsKey),
+  // then rebuild the unified tree synchronously whenever mainRoot changes.
+  useEffect(() => {
+    if (!mainRoot || !mainTreeId || !enabled || connectedBranchMetas.length === 0) return
+
+    const currentRevision = ++revisionRef.current
+
+    // If branch IDs haven't changed, reuse the cached branches. Debounce the
+    // rebuild so typing in the chart does not clone the whole tree per keystroke.
+    if (cachedBranchesRef.current && cachedBranchIdsRef.current === branchIdsKey) {
+      const cachedBranches = cachedBranchesRef.current
+      const timer = setTimeout(() => {
+        const result = buildUnifiedTree(
+          mainTreeId,
+          mainRoot,
+          mainTreeName,
+          cachedBranches,
+          commonFatherName
+        )
+        setUnifiedResult(result)
+      }, 150)
+      return () => clearTimeout(timer)
     }
 
-    if (buildInFlight.current) return
-    buildInFlight.current = true
+    // Branch IDs changed — fetch from cloud then rebuild.
     setIsLoading(true)
 
     const metasSnapshot = [...connectedBranchMetas]
@@ -112,11 +135,19 @@ export function useUnifiedTree({
       })
     )
       .then((results) => {
+        // Discard stale results from a superseded async call
+        if (revisionRef.current !== currentRevision) return
+
         const branches: ConnectedBranchInput[] = results.filter((b): b is ConnectedBranchInput => b !== null)
+        // Cache for instant rebuilds on subsequent local edits
+        cachedBranchesRef.current = branches
+        cachedBranchIdsRef.current = branchIdsKey
+
         const result = buildUnifiedTree(idSnapshot, rootSnapshot, nameSnapshot, branches, commonFatherName)
         setUnifiedResult(result)
       })
       .catch((err) => {
+        if (revisionRef.current !== currentRevision) return
         console.error('[useUnifiedTree] Failed to load branch states:', err)
         setUnifiedResult({
           root: rootSnapshot,
@@ -126,11 +157,12 @@ export function useUnifiedTree({
         })
       })
       .finally(() => {
-        setIsLoading(false)
-        buildInFlight.current = false
+        if (revisionRef.current === currentRevision) setIsLoading(false)
       })
-    // Re-run when tree IDs change, unified toggled, commonFatherName changed, or mainRoot is loaded / changed
-  }, [mainTreeId, branchIdsKey, enabled, commonFatherName, mainRoot?.id, mainRoot?.name, mainRoot?.children?.length])
+  // mainRoot reference changes on every local edit — this is intentional so
+  // the unified view reflects edits immediately using the cached branches.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mainRoot, mainTreeId, branchIdsKey, enabled, commonFatherName, mainTreeName])
 
   return {
     unifiedResult,

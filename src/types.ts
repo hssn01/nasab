@@ -3,6 +3,8 @@ export type Gender = 'M' | 'F'
 /** Wife linked by female person id — from this tree or another tree in the user's trees. */
 export interface TreeWife {
   id: string
+  /** Supabase UUID for this union in the v2 schema. The app keeps the legacy wife code in `id`. */
+  dbId?: string
   type: 'tree'
   personId: string
   /** Optional tree ID if chosen from another tree */
@@ -18,6 +20,8 @@ export interface TreeWife {
 /** Wife from outside the tree — free-text archival fields. */
 export interface ExternalWife {
   id: string
+  /** Supabase UUID for this union in the v2 schema. The app keeps the legacy wife code in `id`. */
+  dbId?: string
   type: 'external'
   name: string
   family: string
@@ -37,6 +41,8 @@ export interface BranchMeta {
 
 export interface Person {
   id: string
+  /** Supabase UUID for this person in the v2 schema. The app keeps the legacy code in `id`. */
+  dbId?: string
   name: string
   gender: Gender
   children: Person[]
@@ -122,12 +128,12 @@ export interface DbPerson {
 export interface RelationalPerson {
   id: string
   treeId: string
+  code: string
   name: string
   gender: Gender
   fatherId: string | null
-  motherId: string | null
-  unionId: string | null
-  birthOrder: number
+  motherUnionId: string | null
+  siblingOrder: number
   notes?: string
   branchMeta?: BranchMeta
   updated_at: string
@@ -138,35 +144,25 @@ export interface RelationalPerson {
 export interface RelationalUnion {
   id: string
   treeId: string
+  code: string | null
   husbandId: string
-  type: 'tree' | 'external'
-  /** If type === 'tree' */
   wifePersonId?: string
-  wifeTreeId?: string
-  wifeTreeName?: string
-  wifePersonName?: string
-  wifeLineageLabel?: string
-  /** If type === 'external' */
   externalName?: string
   externalFamily?: string
   externalTribute?: string
   marriageOrder: number
+  legacy?: any
   notes?: string
   updated_at: string
   synced?: boolean
 }
 
-/** Normalized tree metadata and builder state */
+/** Normalized tree metadata for the v2 schema */
 export interface RelationalTree {
   id: string
   name: string
   rootPersonId: string | null
-  phase: Phase
-  currentPersonId: string | null
-  maleCounter: number
-  femaleCounter: number
-  malesQueue: string[]
-  currentMaleIndex: number
+  version: number
   linkedFrom?: TreeLink
   updated_at: string
   synced?: boolean

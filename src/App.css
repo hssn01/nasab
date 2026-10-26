@@ -3286,7 +3286,7 @@ input.home-search-pill-input {
   opacity: 0.9;
 }
 
-/* ── Editor Code Modal (PIN: 2233) ── */
+/* ── Editor Code Modal (server-verified passcode) ── */
 .editor-modal-backdrop {
   position: fixed;
   inset: 0;

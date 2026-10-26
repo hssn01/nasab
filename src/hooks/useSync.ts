@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { supabase, isConfigured } from '../lib/supabase'
+import { isConfigured } from '../lib/supabase'
 import {
   getAllSessions,
   getUnsyncedSessions,
   markSessionSynced,
   saveSessionLocally,
 } from '../localDb'
+import { fetchDeviceTrees, fetchTreeState, saveTreeState } from '../db'
 import { setCachedState } from '../db'
 
 export function useSync() {
@@ -22,97 +23,39 @@ export function useSync() {
     setSyncError(null)
 
     try {
-      // 1. Find all unsynced sessions in IndexedDB and push to Supabase
       const unsyncedSessions = await getUnsyncedSessions()
 
       for (const session of unsyncedSessions) {
-        // Upsert session to Supabase 'trees' table (last-write-wins)
-        let stateToSave = session.linkedFrom
-          ? { ...session.state, linkedFrom: session.linkedFrom }
-          : session.state
-
-        // Guard: If local state lacks linkedFrom, check if Supabase already has one to avoid wiping it
-        if (!stateToSave?.linkedFrom) {
-          const { data: remoteTree } = await supabase
-            .from('trees')
-            .select('state')
-            .eq('id', session.id)
-            .single()
-          if (remoteTree?.state?.linkedFrom) {
-            stateToSave = { ...stateToSave, linkedFrom: remoteTree.state.linkedFrom }
-          }
-        }
-
-        const { error: treeErr } = await supabase
-          .from('trees')
-          .upsert(
-            {
-              id: session.id,
-              name: session.name,
-              state: stateToSave,
-              updated_at: session.updated_at || new Date().toISOString(),
-            },
-            {
-              onConflict: 'id',
-              ignoreDuplicates: false,
-            }
-          )
-
-        if (!treeErr) {
-          await markSessionSynced(session.id)
-        } else {
-          // If 'trees' failed, check if 'sessions' table exists
-          const { error: sessErr } = await supabase
-            .from('sessions')
-            .upsert(
-              {
-                id: session.id,
-                name: session.name,
-                updated_at: session.updated_at || new Date().toISOString(),
-              },
-              {
-                onConflict: 'id',
-                ignoreDuplicates: false,
-              }
-            )
-
-          if (!sessErr) {
-            await markSessionSynced(session.id)
-          }
-        }
+        const saved = await saveTreeState(session.id, session.state)
+        // A guarded save (e.g. an explicit wife deletion whose pending shot
+        // has not reached the cloud yet) must stay unsynced so it can retry.
+        if (saved) await markSessionSynced(session.id)
       }
 
-      // 2. Bidirectional pull: Fetch remote trees and update local if remote was updated on the internet
+      const remoteTrees = await fetchDeviceTrees()
       const allLocal = await getAllSessions()
       const localMap = new Map(allLocal.map((s) => [s.id, s]))
 
-      const { data: remoteTrees } = await supabase
-        .from('trees')
-        .select('id, name, updated_at, state')
+      for (const remote of remoteTrees) {
+        const local = localMap.get(remote.id)
+        const remoteTime = remote.updated_at ? new Date(remote.updated_at).getTime() : 0
+        const localTime = local?.updated_at ? new Date(local.updated_at).getTime() : 0
 
-      if (remoteTrees) {
-        for (const remote of remoteTrees) {
-          const local = localMap.get(remote.id)
-          const rState = typeof remote.state === 'string' ? JSON.parse(remote.state) : remote.state
-          if (!rState || !rState.root) continue
-
-          const remoteTime = remote.updated_at ? new Date(remote.updated_at).getTime() : 0
-          const localTime = local?.updated_at ? new Date(local.updated_at).getTime() : 0
-
-          // If remote is newer and local has no pending unsynced edits, pull it into local
-          if (local?.synced !== false && remoteTime > localTime) {
-            setCachedState(remote.id, rState)
+        if (local?.synced !== false && remoteTime > localTime) {
+          const cloudState = await fetchTreeState(remote.id)
+          if (cloudState) {
+            setCachedState(remote.id, cloudState)
             await saveSessionLocally(
               {
                 id: remote.id,
                 name: remote.name,
-                state: rState,
+                state: cloudState,
                 updated_at: remote.updated_at,
                 downloaded: local?.downloaded ?? true,
                 synced: true,
-                linkedFrom: rState.linkedFrom || local?.linkedFrom,
+                linkedFrom: cloudState.linkedFrom || local?.linkedFrom,
               },
-              true
+              true,
             )
           }
         }
@@ -127,14 +70,12 @@ export function useSync() {
     }
   }, [])
 
-  // Auto-sync on online event
   useEffect(() => {
     function handleOnline() {
       void syncPending()
     }
 
     window.addEventListener('online', handleOnline)
-    // Run once on mount if online
     if (navigator.onLine) {
       void syncPending()
     }

@@ -3,7 +3,6 @@ import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.tsx'
 import { migrateAllLocalSessions } from './localDb'
-import { migrateSupabaseToRelational } from './db'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
@@ -11,6 +10,9 @@ createRoot(document.getElementById('root')!).render(
   </StrictMode>,
 )
 
-// Run one-time migrations silently in the background after render
-migrateAllLocalSessions().catch(console.warn)
-migrateSupabaseToRelational().catch(console.warn)
+// Run the one-time local migration silently in the background after render.
+if ('requestIdleCallback' in window) {
+  window.requestIdleCallback(() => migrateAllLocalSessions().catch(console.warn))
+} else {
+  setTimeout(() => migrateAllLocalSessions().catch(console.warn), 0)
+}

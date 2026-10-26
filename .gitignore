@@ -23,8 +23,8 @@ dist-ssr
 *.sln
 *.sw?
 
-# Standalone public viewer app repository
-viewer-app/
-
 # Local data backups
 *_backup.json
+
+# Supabase CLI local link/cache files
+supabase/.temp/

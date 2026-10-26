@@ -1,12 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
-import { supabase, isConfigured } from '../lib/supabase'
-import {
-  deleteSessionLocally,
-  downloadSessionFromSupabase,
-  getAllSessions,
-  saveSessionLocally,
-} from '../localDb'
-import { getCachedTreeList, setCachedState } from '../db'
+import { isConfigured } from '../lib/supabase'
+import { downloadSessionFromSupabase, getAllSessions } from '../localDb'
+import { deleteTree, fetchDeviceTrees } from '../db'
 import type { TreeMeta } from '../types'
 
 export function useSessionList() {
@@ -20,136 +15,14 @@ export function useSessionList() {
     setLoading(true)
     setError(null)
     try {
-      if (navigator.onLine && isConfigured) {
-        // Fetch from Supabase (trees or sessions table)
-        let remoteList: { id: string; name: string; updated_at: string; state?: any }[] = []
-
-        const { data: trees, error: tErr } = await supabase
-          .from('trees')
-          .select('id, name, updated_at, state')
-          .order('updated_at', { ascending: false })
-
-        if (!tErr && trees) {
-          remoteList = trees
-        } else {
-          const { data: sess, error: sErr } = await supabase
-            .from('sessions')
-            .select('id, name, updated_at')
-            .order('updated_at', { ascending: false })
-
-          if (!sErr && sess) {
-            remoteList = sess
-          }
-        }
-
-        // Fetch local IndexedDB sessions & metadata cache
-        const local = await getAllSessions()
-        const localMap = new Map(local.map((s) => [s.id, s]))
-        const cachedTreeList = getCachedTreeList()
-        const cachedMap = new Map(cachedTreeList.map((c) => [c.id, c]))
-
-        // Merge remote trees with local downloaded status
-        const merged: TreeMeta[] = remoteList.map((remote) => {
-          const localMatch = localMap.get(remote.id)
-          const cachedMatch = cachedMap.get(remote.id)
-          const isDownloaded = Boolean(localMatch && localMatch.downloaded)
-          const rState = typeof remote.state === 'string' ? JSON.parse(remote.state) : remote.state
-          const rootAncestor =
-            rState?.root?.name || localMatch?.rootAncestor || cachedMatch?.rootAncestor || remote.name
-
-          const linkedFrom =
-            rState?.linkedFrom ||
-            (remote as any).linked_from ||
-            (remote as any).link ||
-            localMatch?.linkedFrom ||
-            localMatch?.state?.linkedFrom ||
-            cachedMatch?.linkedFrom
-
-          return {
-            id: remote.id,
-            name: remote.name,
-            updated_at: remote.updated_at,
-            downloaded: isDownloaded,
-            synced: true,
-            rootAncestor,
-            linkedFrom,
-          }
-        })
-
-        // Also add any local-only sessions that don't exist remotely yet
-        const remoteIds = new Set(remoteList.map((r) => r.id))
-        const localOnly = local.filter((l) => !remoteIds.has(l.id))
-        for (const l of localOnly) {
-          merged.push({
-            id: l.id,
-            name: l.name,
-            updated_at: l.updated_at,
-            downloaded: true,
-            synced: l.synced ?? false,
-            rootAncestor: l.rootAncestor || l.state?.root?.name || l.name,
-            linkedFrom: l.linkedFrom || l.state?.linkedFrom,
-          })
-        }
-
-        // Automatically update local cache and IndexedDB if remote tree is newer (e.g. edited from internet)
-        for (const remote of remoteList) {
-          const localMatch = localMap.get(remote.id)
-          const rState = typeof remote.state === 'string' ? JSON.parse(remote.state) : remote.state
-          if (!rState || !rState.root) continue
-
-          const remoteTime = remote.updated_at ? new Date(remote.updated_at).getTime() : 0
-          const localTime = localMatch?.updated_at ? new Date(localMatch.updated_at).getTime() : 0
-
-          if (localMatch?.synced !== false && remoteTime > localTime) {
-            setCachedState(remote.id, rState)
-            if (localMatch?.downloaded) {
-              void saveSessionLocally(
-                {
-                  id: remote.id,
-                  name: remote.name,
-                  state: rState,
-                  updated_at: remote.updated_at,
-                  downloaded: true,
-                  synced: true,
-                  linkedFrom: rState.linkedFrom || localMatch.linkedFrom,
-                },
-                true
-              )
-            }
-          }
-        }
-
-        setSessions(merged)
-        setSource('remote')
-      } else {
-        // Offline: fetch from IndexedDB only
-        const local = await getAllSessions()
-        const cachedTreeList = getCachedTreeList()
-        const cachedMap = new Map(cachedTreeList.map((c) => [c.id, c]))
-        // Only show sessions that were downloaded or created locally
-        const downloadedSessions = local.filter((s) => s.downloaded !== false)
-
-        setSessions(
-          downloadedSessions.map((s) => ({
-            id: s.id,
-            name: s.name,
-            updated_at: s.updated_at,
-            downloaded: true,
-            synced: s.synced ?? true,
-            rootAncestor: s.rootAncestor || s.state?.root?.name || s.name,
-            linkedFrom: s.linkedFrom || s.state?.linkedFrom || cachedMap.get(s.id)?.linkedFrom,
-          }))
-        )
-        setSource('local')
-      }
+      const merged = await fetchDeviceTrees()
+      setSessions(merged)
+      setSource(navigator.onLine && isConfigured ? 'remote' : 'local')
     } catch (err: any) {
       console.error('Error loading session list:', err)
-      setError(err?.message || 'فشل تحميل الجلسات')
-      // Fallback to local
+      setError(err?.message || 'Failed to load trees')
       try {
         const local = await getAllSessions()
-        const cachedTreeList = getCachedTreeList()
-        const cachedMap = new Map(cachedTreeList.map((c) => [c.id, c]))
         setSessions(
           local.map((s) => ({
             id: s.id,
@@ -158,8 +31,8 @@ export function useSessionList() {
             downloaded: true,
             synced: s.synced ?? true,
             rootAncestor: s.rootAncestor || s.state?.root?.name || s.name,
-            linkedFrom: s.linkedFrom || s.state?.linkedFrom || cachedMap.get(s.id)?.linkedFrom,
-          }))
+            linkedFrom: s.linkedFrom || s.state?.linkedFrom,
+          })),
         )
         setSource('local')
       } catch {
@@ -189,20 +62,18 @@ export function useSessionList() {
     }
   }, [load])
 
-  // Download a single session to IndexedDB
   const downloadSession = useCallback(
     async (sessionId: string) => {
       if (!navigator.onLine || !isConfigured) return
       setDownloadingId(sessionId)
       try {
-        await downloadSessionFromSupabase(sessionId, supabase)
-        // Mark session as downloaded in state
+        await downloadSessionFromSupabase(sessionId, (await import('../lib/supabase')).supabase)
         setSessions((prev) =>
           prev.map((s) => (s.id === sessionId ? { ...s, downloaded: true } : s))
         )
       } catch (err) {
         console.error('Download failed:', err)
-        alert('حدث خطأ أثناء تحميل الجلسة للعمل بدون إنترنت.')
+        alert('Download failed.')
       } finally {
         setDownloadingId(null)
       }
@@ -210,21 +81,8 @@ export function useSessionList() {
     []
   )
 
-  // Delete session
   const deleteSession = useCallback(async (sessionId: string) => {
-    // Delete locally
-    await deleteSessionLocally(sessionId)
-
-    // If online, delete from Supabase
-    if (navigator.onLine && isConfigured) {
-      try {
-        await supabase.from('trees').delete().eq('id', sessionId)
-        await supabase.from('sessions').delete().eq('id', sessionId)
-      } catch {
-        // ignore
-      }
-    }
-
+    await deleteTree(sessionId)
     setSessions((prev) => prev.filter((s) => s.id !== sessionId))
   }, [])
 

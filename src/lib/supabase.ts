@@ -2,11 +2,15 @@ import { createClient } from '@supabase/supabase-js'
 
 const url =
   (import.meta.env.VITE_SUPABASE_URL as string | undefined) ||
-  'https://vauzitsqzvuugudlxrrc.supabase.co'
+  (import.meta.env.NEXT_PUBLIC_SUPABASE_URL as string | undefined) ||
+  'https://zkognjfhmxiviuuovqvv.supabase.co'
 
 const key =
   (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined) ||
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZhdXppdHNxenZ1dWd1ZGx4cnJjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg0NjI3ODMsImV4cCI6MjEwNDAzODc4M30.VRAyNkPrTT3E-deNHGlAYa3hrykGJpFmJ2xWKwRFzo0'
+  (import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined) ||
+  (import.meta.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY as string | undefined) ||
+  (import.meta.env.NEXT_PUBLIC_SUPABASE_ANON_KEY as string | undefined) ||
+  'sb_publishable_603N0vfRCbYcCLAADAoU1Q_9x23h76C'
 
 export const isConfigured = Boolean(url && key && !url.includes('xxxx'))
 

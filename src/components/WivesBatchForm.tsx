@@ -235,7 +235,9 @@ export function WivesBatchForm({
                   {wife.lineageLabel ||
                     (wife.personName
                       ? `${wife.personName} (${wife.treeName || 'شجرة أخرى'})`
-                      : getFemaleFullLineage(root, wife.personId))}
+                      : wife.treeId
+                        ? `${wife.personId} (${wife.treeName || 'شجرة أخرى'})`
+                        : getFemaleFullLineage(root, wife.personId))}
                 </span>
               </div>
             ) : (

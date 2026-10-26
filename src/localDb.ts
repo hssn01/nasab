@@ -7,15 +7,23 @@ import type {
   RelationalTreeBundle,
   RelationalUnion,
   Session,
-  TreeState,
+  TreeLink,
 } from './types'
 
 const DB_NAME = 'nasab-offline-db'
 const DB_VERSION = 2
 
+type LocalStoreName = 'sessions' | 'persons' | 'unions'
+
+interface LocalWrite {
+  storeName: LocalStoreName
+  value: unknown
+}
+
 export interface LocalDatabase {
-  put<T>(storeName: 'sessions' | 'persons' | 'unions', value: T): Promise<void>
-  get<T>(storeName: 'sessions' | 'persons' | 'unions', key: string): Promise<T | undefined>
+  put<T>(storeName: LocalStoreName, value: T): Promise<void>
+  putMany(entries: LocalWrite[]): Promise<void>
+  get<T>(storeName: LocalStoreName, key: string): Promise<T | undefined>
   getAll<T>(storeName: 'sessions' | 'persons' | 'unions'): Promise<T[]>
   getAllByIndex<T>(
     storeName: 'sessions' | 'persons' | 'unions',
@@ -74,7 +82,7 @@ export async function getDb(): Promise<LocalDatabase> {
   const idb = await openIndexedDb()
 
   return {
-    async put<T>(storeName: 'sessions' | 'persons' | 'unions', value: T): Promise<void> {
+    async put<T>(storeName: LocalStoreName, value: T): Promise<void> {
       return new Promise<void>((resolve, reject) => {
         const tx = idb.transaction(storeName, 'readwrite')
         const store = tx.objectStore(storeName)
@@ -84,7 +92,20 @@ export async function getDb(): Promise<LocalDatabase> {
       })
     },
 
-    async get<T>(storeName: 'sessions' | 'persons' | 'unions', key: string): Promise<T | undefined> {
+    async putMany(entries: LocalWrite[]): Promise<void> {
+      if (entries.length === 0) return
+      return new Promise<void>((resolve, reject) => {
+        const tx = idb.transaction(['sessions', 'persons', 'unions'], 'readwrite')
+        tx.oncomplete = () => resolve()
+        tx.onerror = () => reject(tx.error)
+        tx.onabort = () => reject(tx.error)
+        for (const entry of entries) {
+          tx.objectStore(entry.storeName).put(entry.value)
+        }
+      })
+    },
+
+    async get<T>(storeName: LocalStoreName, key: string): Promise<T | undefined> {
       return new Promise<T | undefined>((resolve, reject) => {
         const tx = idb.transaction(storeName, 'readonly')
         const store = tx.objectStore(storeName)
@@ -166,104 +187,129 @@ export async function downloadSessionFromSupabase(
   sessionId: string,
   supabase: SupabaseClient
 ): Promise<void> {
-  // First try fetching from 'sessions' table, fallback to 'trees' table
-  let sessionData: {
-    id: string
-    name: string
-    state?: TreeState
-    updated_at: string
-    link?: any
-    linkedFrom?: any
-  } | null = null
-
-  const { data: tree, error: tErr } = await supabase
+  const { data: tree, error: treeErr } = await supabase
     .from('trees')
-    .select('*')
+    .select('id, name, root_person_id, version, updated_at')
     .eq('id', sessionId)
-    .single()
+    .maybeSingle()
 
-  if (!tErr && tree) {
-    sessionData = tree
-  } else {
-    const { data: sess, error: sErr } = await supabase
-      .from('sessions')
-      .select('*')
-      .eq('id', sessionId)
-      .single()
-
-    if (sErr || !sess) {
-      throw new Error(`Failed to fetch session: ${tErr?.message || sErr?.message || 'Not found'}`)
-    }
-    sessionData = sess
+  if (treeErr || !tree) {
+    throw new Error(`Failed to fetch session: ${treeErr?.message || 'Not found'}`)
   }
 
-  if (!sessionData) {
-    throw new Error('Failed to fetch session data')
+  const persons = await fetchPersonsFromSupabase(supabase, sessionId)
+  const unions = await fetchUnionsFromSupabase(supabase, sessionId)
+  const linkedFrom = await fetchLinkedFromFromSupabase(supabase, sessionId)
+
+  const bundle: RelationalTreeBundle = {
+    tree: {
+      id: tree.id,
+      name: tree.name,
+      rootPersonId: tree.root_person_id,
+      version: tree.version ?? 1,
+      linkedFrom,
+      updated_at: tree.updated_at,
+      synced: true,
+    },
+    persons,
+    unions,
   }
 
-  // Extract persons from state.root
-  let persons: DbPerson[] = []
-  if (sessionData.state?.root) {
-    persons = extractPersons(sessionData.state.root, sessionId, sessionData.updated_at)
-  }
+  const state = relationalToTree(bundle)
+  if (linkedFrom && !state.linkedFrom) state.linkedFrom = linkedFrom
 
   const db = await getDb()
   const existing = await db.get<Session>('sessions', sessionId)
-  const effectiveLink =
-    sessionData.link ||
-    sessionData.linkedFrom ||
-    sessionData.state?.linkedFrom ||
-    existing?.linkedFrom ||
-    existing?.state?.linkedFrom
-
-  const finalState = sessionData.state
-    ? { ...sessionData.state, ...(effectiveLink ? { linkedFrom: effectiveLink } : {}) }
-    : ({
-        root: null,
-        phase: 'setup',
-        currentPersonId: null,
-        maleCounter: 1,
-        femaleCounter: 0,
-        malesQueue: [],
-        currentMaleIndex: 0,
-        ...(effectiveLink ? { linkedFrom: effectiveLink } : {}),
-      } as TreeState)
-
-  const rootAncestor = finalState.root?.name || existing?.rootAncestor || sessionData.name
+  const rootAncestor = state.root?.name || existing?.rootAncestor || tree.name
 
   const localSession: Session = {
-    id: sessionData.id,
-    name: sessionData.name,
-    state: finalState,
-    updated_at: sessionData.updated_at,
+    id: tree.id,
+    name: tree.name,
+    state,
+    updated_at: tree.updated_at,
     downloaded: true,
     synced: true,
     rootAncestor,
-    linkedFrom: effectiveLink,
+    linkedFrom,
   }
 
-  await db.put('sessions', localSession)
-
-  // Populate normalized relational stores
-  if (sessionData.state) {
-    const bundle = treeToRelational(sessionId, sessionData.name, sessionData.state, sessionData.updated_at)
-    for (const p of bundle.persons) {
-      await db.put('persons', { ...p, sessionId, synced: true })
-    }
-    for (const u of bundle.unions) {
-      await db.put('unions', { ...u, synced: true })
-    }
-  } else {
-    for (const person of persons) {
-      await db.put('persons', { ...person, sessionId, synced: true })
-    }
+  const writes: LocalWrite[] = [{ storeName: 'sessions', value: localSession }]
+  for (const p of persons) {
+    writes.push({
+      storeName: 'persons',
+      value: { ...p, sessionId: tree.id, synced: true },
+    })
   }
+  for (const u of unions) {
+    writes.push({ storeName: 'unions', value: { ...u, synced: true } })
+  }
+  await db.putMany(writes)
 
-  // Also sync with localStorage cache for backwards compatibility
   try {
-    localStorage.setItem(`nasab-cache-v1-${sessionId}`, JSON.stringify(localSession.state))
+    localStorage.setItem(`nasab-cache-v1-${sessionId}`, JSON.stringify(state))
   } catch {
     // ignore
+  }
+}
+
+async function fetchPersonsFromSupabase(supabase: SupabaseClient, treeId: string): Promise<RelationalPerson[]> {
+  const { data, error } = await supabase.from('persons').select('*').eq('tree_id', treeId)
+  if (error || !data) return []
+  return data.map((p: any) => ({
+    id: p.id,
+    treeId: p.tree_id,
+    code: p.code,
+    name: p.name,
+    gender: p.gender,
+    fatherId: p.father_id ?? null,
+    motherUnionId: p.mother_union_id ?? null,
+    siblingOrder: p.sibling_order ?? 0,
+    branchMeta: p.branch_meta ?? undefined,
+    updated_at: p.updated_at,
+    synced: true,
+  }))
+}
+
+async function fetchUnionsFromSupabase(supabase: SupabaseClient, treeId: string): Promise<RelationalUnion[]> {
+  const { data, error } = await supabase.from('unions').select('*').eq('tree_id', treeId)
+  if (error || !data) return []
+  return data.map((u: any) => ({
+    id: u.id,
+    treeId: u.tree_id,
+    code: u.code,
+    husbandId: u.husband_id,
+    wifePersonId: u.wife_person_id ?? undefined,
+    externalName: u.external_name ?? undefined,
+    externalFamily: u.external_family ?? undefined,
+    externalTribute: u.external_tribute ?? undefined,
+    marriageOrder: u.marriage_order ?? 0,
+    legacy: u.legacy ?? undefined,
+    updated_at: u.updated_at,
+    synced: true,
+  }))
+}
+
+async function fetchLinkedFromFromSupabase(supabase: SupabaseClient, branchTreeId: string): Promise<TreeLink | undefined> {
+  try {
+    const { data: links } = await supabase.from('tree_links').select('*').eq('branch_tree_id', branchTreeId).limit(1)
+    if (!links || links.length === 0) return undefined
+    const link = links[0]
+    const { data: mainTree } = await supabase.from('trees').select('name').eq('id', link.main_tree_id).maybeSingle()
+    let personId: string | undefined
+    if (link.person_id) {
+      const { data: person } = await supabase.from('persons').select('code').eq('id', link.person_id).maybeSingle()
+      personId = person?.code
+    }
+    return {
+      mainTreeId: link.main_tree_id,
+      mainTreeName: mainTree?.name ?? '',
+      type: link.link_type,
+      personId,
+      personName: link.person_name ?? undefined,
+      note: link.note ?? undefined,
+    }
+  } catch {
+    return undefined
   }
 }
 
@@ -287,9 +333,17 @@ export async function getSession(id: string): Promise<Session | null> {
 /**
  * Save or update session in IndexedDB (populates both session doc and relational stores)
  */
+interface SaveSessionOptions {
+  /** Reuse the relational bundle already built by the caller. */
+  bundle?: RelationalTreeBundle
+  /** Skip the localStorage mirror when the caller already wrote it. */
+  skipCache?: boolean
+}
+
 export async function saveSessionLocally(
   session: Session,
-  markSynced: boolean = false
+  markSynced: boolean = false,
+  options: SaveSessionOptions = {}
 ): Promise<void> {
   const db = await getDb()
   const existing = await db.get<Session>('sessions', session.id)
@@ -313,21 +367,31 @@ export async function saveSessionLocally(
     rootAncestor: session.state?.root?.name || existing?.rootAncestor || session.name,
     linkedFrom: effectiveLink,
   }
-  await db.put('sessions', updatedSession)
+  const bundle =
+    options.bundle ??
+    (updatedSession.state
+      ? treeToRelational(session.id, session.name, updatedSession.state, updatedSession.updated_at)
+      : null)
 
-  // Save normalized relational records
-  if (updatedSession.state) {
-    const bundle = treeToRelational(session.id, session.name, updatedSession.state, updatedSession.updated_at)
+  const writes: LocalWrite[] = [{ storeName: 'sessions', value: updatedSession }]
+  if (bundle) {
     for (const p of bundle.persons) {
-      await db.put('persons', { ...p, sessionId: session.id, synced: markSynced })
+      writes.push({
+        storeName: 'persons',
+        value: { ...p, sessionId: session.id, synced: markSynced },
+      })
     }
     for (const u of bundle.unions) {
-      await db.put('unions', { ...u, synced: markSynced })
+      writes.push({
+        storeName: 'unions',
+        value: { ...u, synced: markSynced },
+      })
     }
   }
+  await db.putMany(writes)
 
-  // Also update local cache
-  if (updatedSession.state) {
+  // Also update the localStorage mirror unless the caller already did.
+  if (updatedSession.state && !options.skipCache) {
     try {
       localStorage.setItem(`nasab-cache-v1-${session.id}`, JSON.stringify(updatedSession.state))
     } catch {
@@ -356,15 +420,20 @@ export async function saveRelationalTreeLocally(
     linkedFrom: bundle.tree.linkedFrom,
   }
 
-  await db.put('sessions', session)
-
+  const writes: LocalWrite[] = [{ storeName: 'sessions', value: session }]
   for (const person of bundle.persons) {
-    await db.put('persons', { ...person, sessionId: bundle.tree.id, synced: markSynced })
+    writes.push({
+      storeName: 'persons',
+      value: { ...person, sessionId: bundle.tree.id, synced: markSynced },
+    })
   }
-
   for (const union of bundle.unions) {
-    await db.put('unions', { ...union, synced: markSynced })
+    writes.push({
+      storeName: 'unions',
+      value: { ...union, synced: markSynced },
+    })
   }
+  await db.putMany(writes)
 
   try {
     localStorage.setItem(`nasab-cache-v1-${bundle.tree.id}`, JSON.stringify(treeState))
@@ -395,12 +464,7 @@ export async function getRelationalTreeLocally(
     id: session.id,
     name: session.name,
     rootPersonId: session.state?.root?.id || null,
-    phase: session.state?.phase || 'setup',
-    currentPersonId: session.state?.currentPersonId || null,
-    maleCounter: session.state?.maleCounter || 1,
-    femaleCounter: session.state?.femaleCounter || 0,
-    malesQueue: session.state?.malesQueue || [],
-    currentMaleIndex: session.state?.currentMaleIndex || 0,
+    version: 1,
     linkedFrom: session.linkedFrom,
     updated_at: session.updated_at,
     synced: session.synced,
@@ -494,12 +558,17 @@ export async function migrateAllLocalSessions(): Promise<void> {
         session.updated_at
       )
 
-      for (const p of bundle.persons) {
-        await db.put('persons', { ...p, sessionId: session.id, synced: session.synced ?? true })
-      }
+      const writes: LocalWrite[] = bundle.persons.map((p) => ({
+        storeName: 'persons',
+        value: { ...p, sessionId: session.id, synced: session.synced ?? true },
+      }))
       for (const u of bundle.unions) {
-        await db.put('unions', { ...u, synced: session.synced ?? true })
+        writes.push({
+          storeName: 'unions',
+          value: { ...u, synced: session.synced ?? true },
+        })
       }
+      await db.putMany(writes)
 
       migrated++
     }

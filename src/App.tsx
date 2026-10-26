@@ -1,25 +1,27 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react'
-import { ChildrenBatchForm } from './components/ChildrenBatchForm'
-import { WivesBatchForm } from './components/WivesBatchForm'
-import { MothersAssignForm } from './components/MothersAssignForm'
-import { PersonEditor } from './components/PersonEditor'
-import { TreeRoot } from './components/TreeView'
-import { VisualTreeChart } from './components/VisualTreeChart'
-import { PrintableTributeView } from './components/PrintableTributeView'
-import { PublicViewerPortal } from './components/PublicViewerPortal'
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
 import { LinkTreeModal } from './components/LinkTreeModal'
+import { TreeApp } from './components/SteppedEditorPage'
+
+const VisualTreeChart = lazy(() =>
+  import('./components/VisualTreeChart').then((m) => ({ default: m.VisualTreeChart })),
+)
+const PrintableTributeView = lazy(() =>
+  import('./components/PrintableTributeView').then((m) => ({ default: m.PrintableTributeView })),
+)
+import {
+  EditorCodeModal,
+  isEditorUnlocked,
+  setEditorUnlocked,
+  signOutEditor,
+} from './components/EditorCodeModal'
+import { supabase } from './lib/supabase'
+import { EditorSessionError, reconcileEditorUnlock } from './lib/editorAuth'
 
 import { useSessionList } from './hooks/useSessionList'
 import { useSync } from './hooks/useSync'
 import { useUnifiedTree } from './hooks/useUnifiedTree'
 import {
-  advanceAfterDone,
-  collectMalesDFS,
   countPeople,
-  exportOutline,
-  findPath,
-  findPerson,
   cleanBranchOrTreeTitle,
 } from './treeUtils'
 import { useTreeBuilder, initialState } from './useTreeBuilder'
@@ -32,16 +34,6 @@ import type { Person, TreeLink, TreeMeta, TreeState } from './types'
 import './App.css'
 
 // ── Utilities ────────────────────────────────────────────────────────────────
-
-function download(filename: string, content: string, type: string) {
-  const blob = new Blob([content], { type })
-  const url = URL.createObjectURL(blob)
-  const link = document.createElement('a')
-  link.href = url
-  link.download = filename
-  link.click()
-  URL.revokeObjectURL(url)
-}
 
 function arabicCount(count: number, singular: string, plural: string) {
   return `${count.toLocaleString('ar')} ${count === 1 ? singular : plural}`
@@ -57,7 +49,7 @@ function formatDate(iso: string) {
 
 function getUrlParams(): {
   treeId: string | null
-  view: 'editor' | 'chart' | 'print' | 'viewer' | 'stepped-editor'
+  view: 'editor' | 'chart' | 'print' | 'stepped-editor'
   personId: string | null
   unified: boolean
 } {
@@ -68,281 +60,72 @@ function getUrlParams(): {
     personId: params.get('person'),
     unified: params.get('unified') === '1' || params.get('unified') === 'true',
     view:
-      v === 'viewer'
-        ? 'viewer'
-        : v === 'chart'
+      v === 'chart'
         ? 'chart'
         : v === 'print'
-        ? 'print'
-        : v === 'stepped-editor'
-        ? 'stepped-editor'
-        : 'editor',
+          ? 'print'
+          : v === 'stepped-editor' || v === 'editor'
+            ? 'stepped-editor'
+            : 'editor',
   }
 }
 
-const EDITOR_PASSCODE = '2233'
-const STORAGE_ACCESS_KEY = 'nasab_editor_unlocked'
+// Editor authentication is handled by ./components/EditorCodeModal.
+// The passcode is verified by the `editor-login` Supabase Edge Function; only a
+// short-lived Supabase Auth session (never the passcode) is kept in the client.
 
-function isEditorUnlocked(): boolean {
-  try {
-    return sessionStorage.getItem(STORAGE_ACCESS_KEY) === 'true'
-  } catch {
-    return false
-  }
-}
-
-function setEditorUnlocked(unlocked: boolean) {
-  try {
-    if (unlocked) {
-      sessionStorage.setItem(STORAGE_ACCESS_KEY, 'true')
-    } else {
-      sessionStorage.removeItem(STORAGE_ACCESS_KEY)
-    }
-  } catch {}
-}
-
-// ── Editor Code Modal ─────────────────────────────────────────────────────────
-
-function EditorCodeModal({
-  isOpen,
-  onClose,
-  onSuccess,
-}: {
-  isOpen: boolean
-  onClose: () => void
-  onSuccess: () => void
-}) {
-  const [code, setCode] = useState('')
-  const [error, setError] = useState(false)
-  const inputRef = useRef<HTMLInputElement>(null)
-
-  useEffect(() => {
-    if (isOpen) {
-      setCode('')
-      setError(false)
-      const t = setTimeout(() => inputRef.current?.focus(), 100)
-      return () => clearTimeout(t)
-    }
-  }, [isOpen])
-
-  if (!isOpen) return null
-
-  function handleSubmit(e?: React.FormEvent) {
-    if (e) e.preventDefault()
-    if (code.trim() === EDITOR_PASSCODE) {
-      setEditorUnlocked(true)
-      setError(false)
-      onSuccess()
-      onClose()
-    } else {
-      setError(true)
-      setCode('')
-      inputRef.current?.focus()
-    }
-  }
-
+function RouteLoading() {
   return (
-    <div className="editor-modal-backdrop" onClick={onClose} dir="rtl">
-      <div className="editor-modal-card" onClick={(e) => e.stopPropagation()}>
-        <button
-          type="button"
-          className="editor-modal-close"
-          onClick={onClose}
-          aria-label="إغلاق"
-        >
-          ✕
-        </button>
-
-        <div className="editor-modal-icon-badge">
-          <span>🔒</span>
-        </div>
-
-        <h3 className="editor-modal-title">رمز الدخول للمحرر</h3>
-        <p className="editor-modal-sub">
-          أدخل رمز المرور للتمكن من تعديل وحفظ بيانات السجل العائلي
-        </p>
-
-        <form onSubmit={handleSubmit} className="editor-modal-form">
-          <div className="editor-code-input-wrap">
-            <input
-              ref={inputRef}
-              type="password"
-              inputMode="numeric"
-              pattern="[0-9]*"
-              maxLength={10}
-              placeholder="••••"
-              value={code}
-              onChange={(e) => {
-                setError(false)
-                setCode(e.target.value)
-              }}
-              className={`editor-code-input ${error ? 'code-input-error' : ''}`}
-              autoComplete="off"
-            />
-          </div>
-
-          {error && (
-            <div className="editor-modal-error-alert" role="alert">
-              <span>⚠️ الرمز غير صحيح، يرجى المحاولة مرة أخرى</span>
-            </div>
-          )}
-
-          <div className="editor-modal-actions">
-            <button type="submit" className="primary editor-modal-submit-btn">
-              تأكيد والدخول للمحرر
-            </button>
-            <button
-              type="button"
-              className="compact-button editor-modal-cancel-btn"
-              onClick={onClose}
-            >
-              إلغاء
-            </button>
-          </div>
-        </form>
-      </div>
+    <div style={{ minHeight: '40vh', display: 'grid', placeItems: 'center' }}>
+      <span className="spin" style={{ fontSize: 28 }}>⏳</span>
     </div>
   )
 }
 
-// ── Editor Gate Screen (direct URL access without PIN) ────────────────────────
-
-function EditorGateScreen({
-  onUnlocked,
-  onGoToViewer,
-  onGoHome,
-}: {
-  onUnlocked: () => void
-  onGoToViewer: () => void
-  onGoHome: () => void
-}) {
-  const [code, setCode] = useState('')
-  const [error, setError] = useState(false)
-  const inputRef = useRef<HTMLInputElement>(null)
-
-  useEffect(() => {
-    inputRef.current?.focus()
-  }, [])
-
-  function handleSubmit(e: React.FormEvent) {
-    e.preventDefault()
-    if (code.trim() === EDITOR_PASSCODE) {
-      setEditorUnlocked(true)
-      onUnlocked()
-    } else {
-      setError(true)
-      setCode('')
-      inputRef.current?.focus()
-    }
-  }
-
-  return (
-    <main className="editor-gate-screen" dir="rtl">
-      <div className="editor-gate-card">
-        <div className="editor-modal-icon-badge">
-          <span>🔒</span>
-        </div>
-        <p className="eyebrow">نَسَب · بوابة المحرر</p>
-        <h1 className="editor-gate-title">محرر السجل محمي برمز مرور</h1>
-        <p className="editor-gate-desc">
-          لتعديل بيانات الشجرة وإضافة الأفراد، يرجى إدخال رمز الدخول.
-          إذا كنت ترغب فقط في استعراض الشجرة وقراءتها فلا حاجة لرمز.
-        </p>
-
-        <form onSubmit={handleSubmit} className="editor-modal-form">
-          <div className="editor-code-input-wrap">
-            <input
-              ref={inputRef}
-              type="password"
-              inputMode="numeric"
-              pattern="[0-9]*"
-              maxLength={10}
-              placeholder="••••"
-              value={code}
-              onChange={(e) => {
-                setError(false)
-                setCode(e.target.value)
-              }}
-              className={`editor-code-input ${error ? 'code-input-error' : ''}`}
-              autoComplete="off"
-            />
-          </div>
-
-          {error && (
-            <div className="editor-modal-error-alert" role="alert">
-              <span>⚠️ الرمز غير صحيح، يرجى المحاولة مرة أخرى</span>
-            </div>
-          )}
-
-          <div className="editor-gate-btns">
-            <button type="submit" className="primary editor-modal-submit-btn">
-              فتح المحرر
-            </button>
-            <button
-              type="button"
-              className="compact-button editor-gate-viewer-btn"
-              onClick={onGoToViewer}
-            >
-              👁️ عرض الشجرة للقراءة فقط (بدون رمز)
-            </button>
-            <button
-              type="button"
-              className="compact-button"
-              onClick={onGoHome}
-            >
-              ← العودة للقائمة الرئيسية
-            </button>
-          </div>
-        </form>
-      </div>
-    </main>
-  )
-}
-
-// ── App root — handles URL routing ───────────────────────────────────────────
-
 export default function App() {
   const [route, setRoute] = useState(getUrlParams)
-  const [isUnlocked, setIsUnlocked] = useState(isEditorUnlocked)
 
   useEffect(() => {
-    const handler = () => {
-      setRoute(getUrlParams())
-      setIsUnlocked(isEditorUnlocked())
-    }
+    const handler = () => setRoute(getUrlParams())
     window.addEventListener('popstate', handler)
     return () => window.removeEventListener('popstate', handler)
   }, [])
 
+  // Clear the local unlock flag if the real Supabase session is revoked.
+  useEffect(() => {
+    void reconcileEditorUnlock()
+
+    const { data } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!session) setEditorUnlocked(false)
+    })
+
+    return () => {
+      data.subscription.unsubscribe()
+    }
+  }, [])
+
   function navigate(
     id: string | null,
-    view: 'editor' | 'chart' | 'print' | 'viewer' | 'stepped-editor' = 'editor',
+    view: 'editor' | 'chart' | 'print' | 'stepped-editor' = 'editor',
     personId?: string | null,
     unified?: boolean
   ) {
     let url = window.location.pathname
     if (id) {
       url += `?t=${id}`
-      if (view === 'chart') url += `&view=chart`
-      else if (view === 'print') url += `&view=print`
-      else if (view === 'viewer') url += `&view=viewer`
-      else if (view === 'stepped-editor') url += `&view=stepped-editor`
+      if (view === 'chart') url += '&view=chart'
+      else if (view === 'print') url += '&view=print'
+      else if (view === 'stepped-editor') url += '&view=stepped-editor'
       if (personId) url += `&person=${personId}`
-      if (unified) url += `&unified=1`
-    } else if (view === 'viewer') {
-      url += `?view=viewer`
+      if (unified) url += '&unified=1'
     }
     history.pushState({}, '', url)
     setRoute({
       treeId: id,
-      view: id ? view : (view === 'viewer' ? 'viewer' : 'editor'),
+      view: id ? view : 'editor',
       personId: personId || null,
       unified: !!unified,
     })
-  }
-
-  if (route.view === 'viewer' && !route.treeId) {
-    return <PublicViewerPortal initialTreeId={undefined} onGoHome={() => navigate(null)} />
   }
 
   if (!route.treeId) {
@@ -350,6 +133,20 @@ export default function App() {
       <HomeScreen
         onNavigate={(id) => navigate(id, 'chart')}
         onView={(id) => navigate(id, 'chart')}
+        onEdit={(id) => navigate(id, 'stepped-editor')}
+      />
+    )
+  }
+
+  if (route.view === 'stepped-editor') {
+    return (
+      <SteppedEditorPage
+        key={route.treeId}
+        treeId={route.treeId}
+        onGoToChart={() => navigate(route.treeId, 'chart')}
+        onGoToPrint={() => navigate(route.treeId, 'print')}
+        onOpenTree={(id) => navigate(id, 'chart')}
+        onGoHome={() => navigate(null)}
       />
     )
   }
@@ -359,7 +156,7 @@ export default function App() {
       <TreePrintPage
         treeId={route.treeId}
         isUnified={route.unified}
-        onGoToEditor={() => navigate(route.treeId, 'chart')}
+        onGoBack={() => navigate(route.treeId, 'chart')}
         onGoToChart={() => navigate(route.treeId, 'chart')}
         onOpenTree={(id) => navigate(id, 'print')}
         onGoHome={() => navigate(null)}
@@ -367,28 +164,7 @@ export default function App() {
     )
   }
 
-  if (route.view === 'stepped-editor') {
-    if (!isUnlocked) {
-      return (
-        <EditorGateScreen
-          onUnlocked={() => setIsUnlocked(true)}
-          onGoToViewer={() => navigate(route.treeId, 'chart')}
-          onGoHome={() => navigate(null)}
-        />
-      )
-    }
-    return (
-      <TreeApp
-        treeId={route.treeId}
-        onOpenChart={() => navigate(route.treeId, 'chart')}
-        onOpenPrint={() => navigate(route.treeId, 'print')}
-        onOpenTree={(id) => navigate(id, 'chart')}
-        onGoHome={() => navigate(null)}
-      />
-    )
-  }
-
-  // Default view for any selected tree: TreeChartPage (with search, unified tree, and edit gate)
+  // The chart is the main app. It is read-only until the editor is unlocked.
   return (
     <TreeChartPage
       key={route.treeId}
@@ -402,16 +178,16 @@ export default function App() {
   )
 }
 
-// ── Redesigned Home Screen ───────────────────────────────────────────────────
-
 const OLD_STORAGE_KEY = 'nasab-tree-state-v1'
 
 function HomeScreen({
   onNavigate,
   onView,
+  onEdit,
 }: {
   onNavigate: (id: string) => void
   onView: (id: string) => void
+  onEdit: (id: string) => void
 }) {
   const {
     sessions,
@@ -468,18 +244,24 @@ function HomeScreen({
     }
   }, [])
 
-  function requireEditorAccess(action: () => void) {
+  async function requireEditorAccess(action: () => void) {
     if (isEditorUnlocked()) {
-      setIsUnlocked(true)
-      action()
-    } else {
-      setPendingAction(() => action)
-      setIsCodeModalOpen(true)
+      // The sessionStorage flag can outlive the real session; verify before
+      // running the action so we never send an unauthenticated write.
+      const stillValid = await reconcileEditorUnlock()
+      if (stillValid) {
+        setIsUnlocked(true)
+        action()
+        return
+      }
+      setIsUnlocked(false)
     }
+    setPendingAction(() => action)
+    setIsCodeModalOpen(true)
   }
 
   function handleLockEditor() {
-    setEditorUnlocked(false)
+    void signOutEditor()
     setIsUnlocked(false)
   }
 
@@ -526,8 +308,22 @@ function HomeScreen({
   }
 
   async function handleDelete(id: string) {
-    await deleteSession(id)
-    setDeleteConfirm(null)
+    try {
+      await deleteSession(id)
+      setDeleteConfirm(null)
+    } catch (err) {
+      console.error('Failed to delete tree:', err)
+      if (err instanceof EditorSessionError) {
+        // The editor session expired: lock the UI, ask for the PIN, then retry.
+        setEditorUnlocked(false)
+        setIsUnlocked(false)
+        setDeleteConfirm(null)
+        setPendingAction(() => () => void handleDelete(id))
+        setIsCodeModalOpen(true)
+        return
+      }
+      alert(`تعذر حذف الشجرة: ${err instanceof Error ? err.message : 'خطأ غير معروف'}`)
+    }
   }
 
   function toggleBranches(sessionId: string) {
@@ -640,7 +436,7 @@ create trigger trees_updated_at
                 type="button"
                 id="btn-create-tree"
                 className="home-btn-create-header"
-                onClick={() => void handleCreate()}
+                onClick={() => void requireEditorAccess(() => void handleCreate())}
                 disabled={creating}
                 title="إنشاء سجل رئيسي جديد"
               >
@@ -693,7 +489,7 @@ create trigger trees_updated_at
             </div>
             <button
               className="primary"
-              onClick={() => void handleMigrate()}
+              onClick={() => requireEditorAccess(() => void handleMigrate())}
               disabled={migrating}
             >
               {migrating ? 'جارٍ النقل…' : 'نقل إلى السحابة'}
@@ -834,6 +630,16 @@ create trigger trees_updated_at
                                 ⬇ حفظ للعمل بدون إنترنت
                               </button>
                             )}
+                            <button
+                              type="button"
+                              className="dropdown-item"
+                              onClick={() => {
+                                setActiveMenuId(null)
+                                onEdit(session.id)
+                              }}
+                            >
+                              📝 صفحة الإدخال
+                            </button>
                             <button
                               type="button"
                               className="dropdown-item"
@@ -1057,6 +863,84 @@ create trigger trees_updated_at
   )
 }
 
+// ── Stepped editor page (the original data-entry interface) ──────────────────
+
+function SteppedEditorPage({
+  treeId,
+  onGoToChart,
+  onGoToPrint,
+  onOpenTree,
+  onGoHome,
+}: {
+  treeId: string
+  onGoToChart: () => void
+  onGoToPrint: () => void
+  onOpenTree: (id: string) => void
+  onGoHome: () => void
+}) {
+  const [isUnlocked, setIsUnlocked] = useState(isEditorUnlocked)
+  const [isGateOpen, setIsGateOpen] = useState(!isEditorUnlocked())
+
+  useEffect(() => {
+    let active = true
+    void (async () => {
+      const ok = await reconcileEditorUnlock()
+      if (!active) return
+      const unlocked = ok && isEditorUnlocked()
+      setIsUnlocked(unlocked)
+      setIsGateOpen(!unlocked)
+    })()
+    return () => {
+      active = false
+    }
+  }, [])
+
+  if (isUnlocked) {
+    return (
+      <TreeApp
+        treeId={treeId}
+        onOpenChart={onGoToChart}
+        onOpenPrint={onGoToPrint}
+        onOpenTree={onOpenTree}
+        onGoHome={onGoHome}
+      />
+    )
+  }
+
+  return (
+    <main className="editor-gate-screen" dir="rtl">
+      <div className="setup-card" style={{ maxWidth: 540 }}>
+        <p className="eyebrow">نَسَب · صفحة الإدخال</p>
+        <h1>صفحة الإدخال محمية</h1>
+        <p className="lede">
+          صفحة الإدخال تُستخدم لإضافة الأبناء والزوجات والأمهات خطوة بخطوة. أدخل
+          رمز العائلة لفتحها، أو ارجع إلى المخطط للاستعراض فقط.
+        </p>
+        <div className="actions" style={{ justifyContent: 'center' }}>
+          <button
+            type="button"
+            className="primary"
+            onClick={() => setIsGateOpen(true)}
+          >
+            🔒 إدخال رمز المرور
+          </button>
+          <button type="button" className="compact-button" onClick={onGoToChart}>
+            ← العودة إلى المخطط
+          </button>
+        </div>
+      </div>
+      <EditorCodeModal
+        isOpen={isGateOpen}
+        onClose={() => setIsGateOpen(false)}
+        onSuccess={() => {
+          setIsUnlocked(true)
+          setIsGateOpen(false)
+        }}
+      />
+    </main>
+  )
+}
+
 // ── Tree Chart Page (full screen visual diagram) ──────────────────────────────
 
 function TreeChartPage({
@@ -1077,6 +961,7 @@ function TreeChartPage({
   const tree = useTreeBuilder(treeId)
   const { sessions, refresh } = useSessionList()
   const [selectedId, setSelectedId] = useState<string | null>(() => initialPersonId || null)
+  const [newRootName, setNewRootName] = useState('')
 
   const [showUnifiedView, setShowUnifiedView] = useState(true)
   const [commonFatherName] = useState(() => {
@@ -1087,19 +972,25 @@ function TreeChartPage({
   const [linkModalPerson, setLinkModalPerson] = useState<Person | null>(null)
   const [linkModalTargetBranchId, setLinkModalTargetBranchId] = useState<string | null>(null)
 
-  // Passcode-protection for edit actions (PIN: 2233)
+  // Passcode-protection for edit actions (verified server-side)
   const [isUnlocked, setIsUnlocked] = useState(isEditorUnlocked)
   const [isCodeModalOpen, setIsCodeModalOpen] = useState(false)
   const [pendingAction, setPendingAction] = useState<(() => void) | null>(null)
 
-  function requireEditorAccess(action: () => void) {
+  async function requireEditorAccess(action: () => void) {
     if (isEditorUnlocked()) {
-      setIsUnlocked(true)
-      action()
-    } else {
-      setPendingAction(() => action)
-      setIsCodeModalOpen(true)
+      // The sessionStorage flag can outlive the real session; verify before
+      // running the action so we never send an unauthenticated write.
+      const stillValid = await reconcileEditorUnlock()
+      if (stillValid) {
+        setIsUnlocked(true)
+        action()
+        return
+      }
+      setIsUnlocked(false)
     }
+    setPendingAction(() => action)
+    setIsCodeModalOpen(true)
   }
 
   const counts = tree.root ? countPeople(tree.root) : { males: 0, females: 0 }
@@ -1153,16 +1044,42 @@ function TreeChartPage({
           <p className="eyebrow">سجل فارغ</p>
           <h1 style={{ fontSize: '26px', marginBottom: '8px' }}>لم يتم إدخال بيانات هذا السجل بعد</h1>
           <p className="lede" style={{ margin: '0 auto 20px', maxWidth: '40ch' }}>
-            هذا السجل جديد ولا يحتوي على جد أساسي أو أفراد. يمكنك فتح المحرر لإضافة الجد الأول والبدء في بناء الشجرة.
+            هذا السجل جديد ولا يحتوي على جد أساسي أو أفراد. ابدأ بإضافة الجد الأعلى ثم أضف الأبناء والزوجات من المخطط.
           </p>
           <div style={{ display: 'flex', gap: '10px', justifyContent: 'center', flexWrap: 'wrap' }}>
-            {isUnlocked && (
+            {isUnlocked ? (
+              <>
+                <input
+                  value={newRootName}
+                  onChange={(e) => setNewRootName(e.target.value)}
+                  placeholder="اسم الجد الأعلى"
+                  style={{
+                    padding: '9px 12px',
+                    borderRadius: '8px',
+                    border: '1px solid var(--border)',
+                    background: 'var(--surface)',
+                    color: 'var(--text)',
+                  }}
+                />
+                <button
+                  type="button"
+                  className="primary"
+                  onClick={() => {
+                    if (!newRootName.trim()) return
+                    tree.startRoot(newRootName)
+                    setNewRootName('')
+                  }}
+                >
+                  بدء الشجرة
+                </button>
+              </>
+            ) : (
               <button
                 type="button"
                 className="primary"
-                onClick={() => requireEditorAccess(onGoToEditor)}
+                onClick={() => requireEditorAccess(() => {})}
               >
-                📝 فتح المحرر للبدء بالإدخال
+                🔒 فتح المحرر للبدء
               </button>
             )}
             <button
@@ -1205,31 +1122,39 @@ function TreeChartPage({
           <span>نَسَب · مخطط الشجرة</span>
         </div>
 
-        {/* Corner edit button — only visible when unlocked from the main page */}
-        {isUnlocked && (
+        {/* Editing stays locked until the family PIN is verified. Keep the
+            entry point here too, so users do not have to go back to Home. */}
+        {isUnlocked ? (
           <button
             type="button"
             className="compact-button editor-auth-badge unlocked"
             onClick={() => {
-              setEditorUnlocked(false)
+              void signOutEditor()
               setIsUnlocked(false)
             }}
             title="وضع التعديل مفعل — انقر للقفل"
           >
             🔓 وضع التعديل (قفل)
           </button>
-        )}
-
-        {isUnlocked && (
+        ) : (
           <button
             type="button"
-            className="compact-button"
-            onClick={onGoToEditor}
-            title="فتح نموذج الإدخال الكامل"
+            className="compact-button editor-auth-badge locked"
+            onClick={() => requireEditorAccess(() => {})}
+            title="فتح وضع التعديل برمز العائلة"
           >
-            📝 نموذج الإدخال
+            🔒 وضع التحرير
           </button>
         )}
+
+        <button
+          type="button"
+          className="compact-button"
+          onClick={onGoToEditor}
+          title="فتح صفحة الإدخال خطوة بخطوة (أبناء، زوجات، أمهات)"
+        >
+          📝 صفحة الإدخال
+        </button>
 
         <button
           type="button"
@@ -1317,17 +1242,17 @@ function TreeChartPage({
       </header>
 
       <main className="chart-page-body">
-        <VisualTreeChart
-          root={displayRoot}
+        <Suspense fallback={<RouteLoading />}>
+          <VisualTreeChart
+            root={displayRoot}
           isUnifiedView={showUnifiedView && !!unifiedResult?.isUnified}
-          isEditMode={isUnlocked}
+          isEditMode={isUnlocked && !tree.isSyncing}
           currentTreeId={treeId}
           currentTreeName={mainTreeName}
           availableTrees={sessions}
           selectedId={selectedId}
           currentId={tree.currentPersonId}
           onSelectPerson={(person) => setSelectedId(person.id)}
-          onGoToEditorForPerson={() => requireEditorAccess(() => onGoToEditor())}
           onRenamePerson={(personId, name) =>
             requireEditorAccess(() => tree.renamePerson(personId, name))
           }
@@ -1351,7 +1276,8 @@ function TreeChartPage({
             })
           }}
           onOpenTree={onOpenTree}
-        />
+          />
+        </Suspense>
       </main>
 
       {/* Link Branch Modal from within the chart */}
@@ -1370,7 +1296,7 @@ function TreeChartPage({
         onLinkExistingTree={handleLinkExistingTree}
       />
 
-      {/* Editor Code Modal for PIN 2233 */}
+      {/* Editor Code Modal (server-verified passcode) */}
       <EditorCodeModal
         isOpen={isCodeModalOpen}
         onClose={() => {
@@ -1395,14 +1321,14 @@ function TreeChartPage({
 function TreePrintPage({
   treeId,
   isUnified: initialUnified,
-  onGoToEditor,
+  onGoBack,
   onGoToChart,
   onOpenTree,
   onGoHome,
 }: {
   treeId: string
   isUnified?: boolean
-  onGoToEditor: () => void
+  onGoBack: () => void
   onGoToChart: () => void
   onOpenTree?: (treeId: string) => void
   onGoHome: () => void
@@ -1474,776 +1400,19 @@ function TreePrintPage({
     : `سجل نسب آل ${cleanRootName}`
 
   return (
-    <PrintableTributeView
-      root={effectiveRoot}
-      treeName={effectiveTitle}
-      linkedFrom={tree.linkedFrom}
-      linkedTrees={printUnified ? undefined : linkedTrees}
-      isUnified={printUnified}
-      branchCount={branchCount}
-      onToggleUnified={hasConnectedBranches ? () => setPrintUnified((prev) => !prev) : undefined}
-      onGoBack={onGoToEditor}
-      onGoToChart={onGoToChart}
-      onOpenTree={onOpenTree}
-    />
-  )
-}
-// ── Tree App (the main editor) ────────────────────────────────────────────────
-
-
-function TreeApp({
-  treeId,
-  onOpenChart,
-  onOpenPrint,
-  onOpenTree,
-  onGoHome,
-}: {
-  treeId: string
-  onOpenChart: () => void
-  onOpenPrint: () => void
-  onOpenTree?: (treeId: string) => void
-  onGoHome: () => void
-}) {
-  const tree = useTreeBuilder(treeId)
-  const { sessions, refresh } = useSessionList()
-  const [isLinkModalOpen, setIsLinkModalOpen] = useState(false)
-  const currentTreeMeta = useMemo(() => sessions.find((s) => s.id === treeId) || null, [sessions, treeId])
-
-  async function handleLinkExistingTree(branchTreeId: string, link: TreeLink | null) {
-    await updateTreeLink(branchTreeId, link)
-    await refresh()
-  }
-
-  async function handleCreateLinkedTree(name: string, state: TreeState, link: TreeLink) {
-    const id = await createTree(name, state, link)
-    if (id) await refresh()
-    return id
-  }
-
-  const sidebarRef = useRef<HTMLElement>(null)
-  const resizeRef = useRef<{
-    pointerId: number
-    startX: number
-    startWidth: number
-    anchoredLeft: boolean
-  } | null>(null)
-  const [rootName, setRootName] = useState('')
-  const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [reviewFocus, setReviewFocus] = useState<'children' | 'wives' | 'mothers'>(
-    'children',
-  )
-  const [savedId, setSavedId] = useState<string | null>(null)
-  const [importMessage, setImportMessage] = useState<string | null>(null)
-  const [sidebarWidth, setSidebarWidth] = useState(() => {
-    const saved = Number(localStorage.getItem('nasab-sidebar-width'))
-    return Number.isFinite(saved) && saved >= 260 && saved <= 560 ? saved : 320
-  })
-
-
-  const males = useMemo(
-    () => (tree.root ? collectMalesDFS(tree.root) : []),
-    [tree.root],
-  )
-  const counts = tree.root ? countPeople(tree.root) : { males: 0, females: 0 }
-
-  const selectedPerson = useMemo(() => {
-    if (!tree.root) return null
-    const id = selectedId ?? tree.currentPersonId
-    return id ? findPerson(tree.root, id) : null
-  }, [selectedId, tree.currentPersonId, tree.root])
-
-  const selectedLineage = useMemo(() => {
-    if (!tree.root || !selectedPerson) return []
-    return findPath(tree.root, selectedPerson.id)
-  }, [selectedPerson, tree.root])
-
-  const lineageText = useMemo(
-    () =>
-      [...selectedLineage]
-        .reverse()
-        .map((person) => person.name)
-        .join(' بن '),
-    [selectedLineage],
-  )
-
-  async function importJson(file: File) {
-    try {
-      const value: unknown = JSON.parse(await file.text())
-      if (!tree.importProject(value)) throw new Error('invalid tree')
-      setSelectedId(null)
-      setImportMessage('تم استيراد الشجرة')
-    } catch {
-      setImportMessage('تعذّر استيراد الملف')
-    }
-    window.setTimeout(() => setImportMessage(null), 2500)
-  }
-
-  const visitedIds = useMemo(() => {
-    if (!tree.currentPersonId) return new Set(males.map((male) => male.id))
-
-    if ((tree.phase === 'add-wives' || tree.phase === 'assign-mothers') && tree.malesQueue.length > 0) {
-      const index = tree.malesQueue.indexOf(tree.currentPersonId)
-      const visitedCount = index >= 0 ? index : tree.currentMaleIndex
-      return new Set(tree.malesQueue.slice(0, Math.max(0, visitedCount)))
-    }
-
-    const index = males.findIndex((male) => male.id === tree.currentPersonId)
-    return new Set(males.slice(0, Math.max(0, index)).map((male) => male.id))
-  }, [males, tree.currentMaleIndex, tree.currentPersonId, tree.malesQueue, tree.phase])
-
-  const childrenContinueLabel = useMemo(() => {
-    if (!tree.root || !tree.currentPersonId || tree.phase !== 'enter-children') {
-      return undefined
-    }
-    const next = advanceAfterDone(tree.currentPersonId, tree.root)
-    return next === 'phase2'
-      ? 'حفظ والانتقال إلى الزوجات'
-      : 'حفظ والانتقال للتالي'
-  }, [tree.currentPersonId, tree.phase, tree.root])
-
-  function showSaved(personId: string) {
-    setSavedId(personId)
-    window.setTimeout(() => setSavedId(null), 1800)
-  }
-
-  function updateSidebarWidth(width: number) {
-    const maximum = Math.max(260, Math.min(560, window.innerWidth - 420))
-    const next = Math.round(Math.min(maximum, Math.max(260, width)))
-    setSidebarWidth(next)
-    localStorage.setItem('nasab-sidebar-width', String(next))
-  }
-
-  function startSidebarResize(event: ReactPointerEvent<HTMLDivElement>) {
-    const sidebar = sidebarRef.current
-    if (!sidebar) return
-    const bounds = sidebar.getBoundingClientRect()
-    resizeRef.current = {
-      pointerId: event.pointerId,
-      startX: event.clientX,
-      startWidth: bounds.width,
-      anchoredLeft: bounds.left < window.innerWidth / 2,
-    }
-    event.currentTarget.setPointerCapture(event.pointerId)
-  }
-
-  function resizeSidebar(event: ReactPointerEvent<HTMLDivElement>) {
-    const resize = resizeRef.current
-    if (!resize || resize.pointerId !== event.pointerId) return
-    const movement = event.clientX - resize.startX
-    updateSidebarWidth(
-      resize.startWidth + (resize.anchoredLeft ? movement : -movement),
-    )
-  }
-
-  function stopSidebarResize(event: ReactPointerEvent<HTMLDivElement>) {
-    if (resizeRef.current?.pointerId !== event.pointerId) return
-    resizeRef.current = null
-    event.currentTarget.releasePointerCapture(event.pointerId)
-  }
-
-  const isWivesPhase = tree.phase === 'add-wives'
-  const isChildrenPhase = tree.phase === 'enter-children'
-  const isMothersPhase = tree.phase === 'assign-mothers'
-
-  const multiWifeCount = useMemo(() => {
-    if (!tree.root) return 0
-    return collectMalesDFS(tree.root).filter(
-      (m) => (m.wives?.length ?? 0) > 1 && (m.children?.length ?? 0) > 0,
-    ).length
-  }, [tree.root])
-
-  const wivesContinueLabel = useMemo(() => {
-    if (!isWivesPhase) return undefined
-    const isLast = tree.currentMaleIndex >= tree.malesQueue.length - 1
-    if (isLast) {
-      return multiWifeCount > 0
-        ? 'حفظ والانتقال إلى الأمهات'
-        : 'حفظ والإنهاء إلى المراجعة'
-    }
-    return 'حفظ والانتقال للتالي'
-  }, [isWivesPhase, tree.currentMaleIndex, tree.malesQueue.length, multiWifeCount])
-
-  const mothersContinueLabel = useMemo(() => {
-    if (!isMothersPhase) return undefined
-    const isLast = tree.currentMaleIndex >= tree.malesQueue.length - 1
-    return isLast ? 'حفظ والإنهاء إلى المراجعة' : 'حفظ والانتقال للتالي'
-  }, [isMothersPhase, tree.currentMaleIndex, tree.malesQueue.length])
-
-  const mothersProgressLabel = useMemo(() => {
-    if (!isMothersPhase || tree.malesQueue.length === 0) return ''
-    return `رجل ${(tree.currentMaleIndex + 1).toLocaleString('ar')} من ${tree.malesQueue.length.toLocaleString('ar')} (متعدد)`
-  }, [isMothersPhase, tree.currentMaleIndex, tree.malesQueue.length])
-
-  const activeFocus = useMemo(() => {
-    if (isChildrenPhase) {
-      return reviewFocus === 'wives' || reviewFocus === 'mothers' ? reviewFocus : 'children'
-    }
-    if (isWivesPhase) {
-      return reviewFocus === 'children' || reviewFocus === 'mothers' ? reviewFocus : 'wives'
-    }
-    if (isMothersPhase) {
-      return reviewFocus === 'children' || reviewFocus === 'wives' ? reviewFocus : 'mothers'
-    }
-    return reviewFocus
-  }, [isChildrenPhase, isWivesPhase, isMothersPhase, reviewFocus])
-
-  // ── Setup screen (new tree, no root yet) ──
-  if (tree.phase === 'setup' || !tree.root) {
-    return (
-      <main className="setup" dir="rtl">
-        <div className="setup-card">
-          <button className="back-button" onClick={onGoHome} type="button">
-            → العودة إلى الرئيسية
-          </button>
-          <p className="eyebrow">نَسَب</p>
-          <h1>أنشئ شجرة النسب</h1>
-          <p className="lede">
-            ابدأ بالجد الأعلى، ثم أدخل أبناء وبنات كل رجل كما وردوا في الكتاب.
-          </p>
-          {tree.linkedFrom && (
-            <div className="setup-linked-banner">
-              <span className="badge-icon">
-                {tree.linkedFrom.type === 'daughter-branch'
-                  ? '🧬'
-                  : tree.linkedFrom.type === 'brother-branch'
-                  ? '🤝'
-                  : '🌿'}
-              </span>
-              <div>
-                <strong>
-                  {tree.linkedFrom.type === 'daughter-branch'
-                    ? `فرع بنت: ${tree.linkedFrom.personName || ''}`
-                    : tree.linkedFrom.type === 'brother-branch'
-                    ? `فرع أخ الجد الأكبر: ${tree.linkedFrom.personName || ''}`
-                    : 'فرع عائلي مرتبط'}
-                </strong>
-                <p>متصل بالشجرة الرئيسية «{tree.linkedFrom.mainTreeName}»</p>
-              </div>
-            </div>
-          )}
-          <form
-            className="entry-form"
-            onSubmit={(event) => {
-              event.preventDefault()
-              if (rootName.trim()) tree.startRoot(rootName)
-            }}
-          >
-            <div className="input-row">
-              <input
-                type="text"
-                dir="rtl"
-                autoFocus
-                value={rootName}
-                placeholder="اسم الجد الأعلى"
-                onChange={(event) => setRootName(event.target.value)}
-                autoComplete="off"
-              />
-              <button type="submit" className="primary">
-                ابدأ
-              </button>
-            </div>
-            <p className="hint">
-              سيُسجّل بالمعرّف <span className="badge badge-m">M001</span>
-            </p>
-          </form>
-        </div>
-      </main>
-    )
-  }
-
-  const isComplete = tree.phase === 'complete'
-  const isEditingEarlier =
-    selectedId !== null && selectedId !== tree.currentPersonId
-
-  const showWivesForm = activeFocus === 'wives'
-  const showMothersForm = activeFocus === 'mothers'
-
-  const wivesProgressLabel = isWivesPhase
-    ? `${(tree.currentMaleIndex + 1).toLocaleString('ar')} / ${tree.malesQueue.length.toLocaleString('ar')}`
-    : ''
-
-  return (
-    <div
-      className="layout"
-      dir="rtl"
-      style={{ '--sidebar-width': `${sidebarWidth}px` } as CSSProperties}
-    >
-      <header className="topbar">
-        <button
-          className="home-nav-button"
-          onClick={onGoHome}
-          title="الرئيسية"
-          aria-label="العودة إلى الرئيسية"
-        >
-          ←
-        </button>
-        <div className="brand">
-          <span className="brand-mark">ن</span>
-          <span>نَسَب</span>
-        </div>
-
-        {(() => {
-          const activeLink = tree.linkedFrom || currentTreeMeta?.linkedFrom
-          if (!activeLink) {
-            return (
-              <button
-                type="button"
-                className="compact-button"
-                onClick={() => setIsLinkModalOpen(true)}
-                title="ربط هذه الشجرة كفرع لشجرة أخرى (مثلاً: أخت الجد الخامس هي أم لهذه الشجرة)"
-              >
-                🔗 ربط كفرع بشجرة أخرى
-              </button>
-            )
-          }
-          return (
-            <div className="linked-tree-header-badge">
-              <button
-                type="button"
-                className="linked-tree-nav-btn"
-                onClick={() => {
-                  if (onOpenTree) onOpenTree(activeLink.mainTreeId)
-                }}
-                title={`الانتقال إلى الشجرة الرئيسية «${activeLink.mainTreeName}»`}
-              >
-                <span className="badge-icon">
-                  {activeLink.type === 'daughter-branch' ? '🧬' : '🤝'}
-                </span>
-                <span>
-                  متصلة بـ «{activeLink.mainTreeName}»
-                  {activeLink.personName ? ` (أم/صلة: ${activeLink.personName})` : ''}
-                </span>
-              </button>
-              <button
-                type="button"
-                className="unlink-mini-btn"
-                onClick={() => {
-                  if (window.confirm('هل تريد بالتأكيد فك ارتباط هذه الشجرة وجعلها شجرة مستقلة؟')) {
-                    void handleLinkExistingTree(treeId, null)
-                  }
-                }}
-                title="فك الارتباط لتصبح هذه الشجرة مستقلة ومنفصلة تماماً"
-              >
-                ✂️ فك الارتباط (جعلها مستقلة)
-              </button>
-            </div>
-          )
-        })()}
-
-        <button
-          type="button"
-          className="compact-button"
-          onClick={onOpenChart}
-          title="فتح مخطط الشجرة المرئي"
-        >
-          🌳 مخطط الشجرة
-        </button>
-
-        <button
-          type="button"
-          className="compact-button"
-          onClick={onOpenPrint}
-          title="عرض وطباعة وثيقة وسجل النسب"
-        >
-          🖨️ وثيقة للطباعة
-        </button>
-
-
-        {tree.isSyncing && (
-          <span className="sync-indicator" role="status" aria-live="polite">
-            ⟳ جارٍ المزامنة
-          </span>
-        )}
-        <div className="phases" aria-label="مراحل العمل">
-          <button
-            type="button"
-            className={`phase-button phase${isChildrenPhase ? ' active' : ''}`}
-            onClick={() => {
-              tree.goToPhase('enter-children')
-              setReviewFocus('children')
-            }}
-            title="الانتقال إلى مرحلة إدخال الأبناء والبنات"
-          >
-            ١ · الأبناء والبنات
-          </button>
-          <button
-            type="button"
-            className={`phase-button phase${isWivesPhase ? ' active' : ''}`}
-            onClick={() => {
-              tree.goToPhase('add-wives')
-              setReviewFocus('wives')
-            }}
-            title="الانتقال إلى مرحلة إدخال الزوجات"
-          >
-            ٢ · الزوجات
-          </button>
-          <button
-            type="button"
-            className={`phase-button phase${isMothersPhase ? ' active' : ''}`}
-            onClick={() => {
-              tree.goToPhase('assign-mothers')
-              setReviewFocus('mothers')
-            }}
-            title="الانتقال إلى مرحلة ربط الأمهات (للمتزوجين بأكثر من واحدة)"
-          >
-            ٣ · الأمهات{multiWifeCount > 0 ? ` (${multiWifeCount.toLocaleString('ar')})` : ''}
-          </button>
-          <button
-            type="button"
-            className={`phase-button phase${isComplete ? ' active' : ''}`}
-            onClick={() => {
-              tree.goToPhase('complete')
-            }}
-            title="الانتقال إلى مرحلة المراجعة"
-          >
-            ٤ · المراجعة
-          </button>
-        </div>
-        <div className="counts">
-          <span>{arabicCount(counts.males, 'رجل', 'رجال')}</span>
-          <span>{arabicCount(counts.females, 'امرأة', 'نساء')}</span>
-        </div>
-      </header>
-
-      <main className="panel">
-        {selectedPerson ? (
-          <>
-            {savedId === selectedPerson.id && (
-              <p className="save-notice" role="status">
-                تم الحفظ
-              </p>
-            )}
-            {selectedPerson.gender === 'M' ? (
-              <>
-                <div className="review-focus" role="tablist" aria-label="نوع التعديل">
-                  <button
-                    type="button"
-                    role="tab"
-                    aria-selected={activeFocus === 'children'}
-                    className={`compact-button${activeFocus === 'children' ? ' primary' : ''}`}
-                    onClick={() => setReviewFocus('children')}
-                  >
-                    الأبناء والبنات ({selectedPerson.children.length.toLocaleString('ar')})
-                  </button>
-                  <button
-                    type="button"
-                    role="tab"
-                    aria-selected={activeFocus === 'wives'}
-                    className={`compact-button${activeFocus === 'wives' ? ' primary' : ''}`}
-                    onClick={() => setReviewFocus('wives')}
-                  >
-                    الزوجات ({selectedPerson.wives.length.toLocaleString('ar')})
-                  </button>
-                  <button
-                    type="button"
-                    role="tab"
-                    aria-selected={activeFocus === 'mothers'}
-                    className={`compact-button${activeFocus === 'mothers' ? ' primary' : ''}`}
-                    onClick={() => setReviewFocus('mothers')}
-                  >
-                    الأمهات
-                  </button>
-                </div>
-                {showWivesForm ? (
-                  <WivesBatchForm
-                    key={`wives-${selectedPerson.id}`}
-                    person={selectedPerson}
-                    root={tree.root}
-                    lineageText={lineageText}
-                    isCurrent={!isEditingEarlier && isWivesPhase}
-                    progressLabel={wivesProgressLabel}
-                    continueLabel={wivesContinueLabel}
-                    currentTreeId={treeId}
-                    currentTreeName={tree.root ? `شجرة ${tree.root.name}` : undefined}
-                    availableTrees={sessions}
-                    onRename={(name) => tree.renamePerson(selectedPerson.id, name)}
-                    onSave={(wives) => {
-                      tree.setWives(selectedPerson.id, wives)
-                      showSaved(selectedPerson.id)
-                    }}
-                    onSaveAndContinue={(wives) => {
-                      tree.setWivesAndContinue(wives)
-                      setSelectedId(null)
-                    }}
-                    onReturnToCurrent={() => setSelectedId(null)}
-                    onSwitchToChildren={() => setReviewFocus('children')}
-                    onAddDaughter={(fatherId, daughterName) => {
-                      const newId = tree.addChildToPerson(fatherId, daughterName, 'F')
-                      if (newId) {
-                        showSaved(fatherId)
-                      }
-                      return newId
-                    }}
-                  />
-                ) : showMothersForm ? (
-                  <MothersAssignForm
-                    key={`mothers-${selectedPerson.id}-${selectedPerson.wives.map((w) => w.id).join('|')}`}
-                    person={selectedPerson}
-                    root={tree.root}
-                    lineageText={lineageText}
-                    isCurrent={!isEditingEarlier && isMothersPhase}
-                    progressLabel={mothersProgressLabel}
-                    continueLabel={mothersContinueLabel}
-                    onSave={(assignments) => {
-                      tree.setChildrenMothers(selectedPerson.id, assignments)
-                      showSaved(selectedPerson.id)
-                    }}
-                    onSaveAndContinue={(assignments) => {
-                      tree.setMothersAndContinue(selectedPerson.id, assignments)
-                      setSelectedId(null)
-                    }}
-                    onReturnToCurrent={() => setSelectedId(null)}
-                    onSkip={isMothersPhase ? () => {
-                      tree.skipMotherAndContinue()
-                      setSelectedId(null)
-                    } : undefined}
-                    onBack={() => setReviewFocus(isWivesPhase ? 'wives' : isMothersPhase ? 'mothers' : 'children')}
-                  />
-                ) : (
-                  <ChildrenBatchForm
-                    key={`children-${selectedPerson.id}`}
-                    person={selectedPerson}
-                    lineageText={lineageText}
-                    isCurrent={!isEditingEarlier && isChildrenPhase}
-                    canDelete={selectedPerson.id !== tree.root.id}
-                    continueLabel={childrenContinueLabel}
-                    returnToWivesLabel={isWivesPhase ? 'حفظ والعودة إلى الزوجات' : undefined}
-                    onReturnToWives={isWivesPhase ? () => setReviewFocus('wives') : undefined}
-                    onRename={(name) => tree.renamePerson(selectedPerson.id, name)}
-                    onSave={(sons, daughters) => {
-                      tree.setChildren(selectedPerson.id, sons, daughters)
-                      showSaved(selectedPerson.id)
-                    }}
-                    onSaveAndContinue={(sons, daughters) => {
-                      if (isWivesPhase) {
-                        tree.setChildren(selectedPerson.id, sons, daughters)
-                        showSaved(selectedPerson.id)
-                        setReviewFocus('wives')
-                      } else {
-                        tree.setChildrenAndContinue(sons, daughters)
-                        setSelectedId(null)
-                      }
-                    }}
-                    onDelete={() => {
-                      tree.deletePerson(selectedPerson.id)
-                      setSelectedId(null)
-                    }}
-                    onReturnToCurrent={() => setSelectedId(null)}
-                  />
-                )}
-              </>
-            ) : (
-              <PersonEditor
-                key={selectedPerson.id}
-                person={selectedPerson}
-                onRename={(name) => {
-                  tree.renamePerson(selectedPerson.id, name)
-                  showSaved(selectedPerson.id)
-                }}
-                onDelete={() => {
-                  tree.deletePerson(selectedPerson.id)
-                  setSelectedId(null)
-                }}
-                onBack={() => setSelectedId(null)}
-              />
-            )}
-          </>
-        ) : isMothersPhase && tree.malesQueue.length === 0 ? (
-          <section className="stage complete-stage">
-            <p className="eyebrow">مرحلة الأمهات</p>
-            <h2>لا يوجد رجال متعددو الزوجات</h2>
-            <p className="lede">
-              جميع الرجال المسجلين في هذه الشجرة لديهم زوجة واحدة فقط أو بدون زوجات.
-              تم تعيين أمهات الأبناء تلقائياً لعدم وجود تعدد زوجات يتطلب التحديد اليدوي.
-            </p>
-            <div className="actions">
-              <button
-                className="primary"
-                type="button"
-                onClick={() => tree.goToPhase('complete')}
-              >
-                الانتقال إلى المراجعة ←
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  tree.goToPhase('add-wives')
-                  setReviewFocus('wives')
-                }}
-              >
-                العودة إلى الزوجات
-              </button>
-            </div>
-          </section>
-        ) : (
-          <section className="stage complete-stage">
-            <p className="eyebrow">اكتمل إدخال الأشخاص والزوجات والأمهات</p>
-            <h2>أصبحت الشجرة جاهزة للمراجعة</h2>
-            <p className="lede">
-              سُجّل {arabicCount(counts.males, 'رجل', 'رجال')} و
-              {arabicCount(counts.females, 'امرأة', 'نساء')}. اختر أي رجل من
-              الشجرة لتعديل أبنائه أو زوجاته أو أمهاتهم.
-            </p>
-            <div className="actions">
-              <button
-                className="primary"
-                onClick={onOpenPrint}
-                title="عرض وطباعة وثيقة وسجل النسب"
-              >
-                🖨️ طباعة وثيقة النسب
-              </button>
-              <button
-                onClick={() => {
-                  setReviewFocus('wives')
-                  tree.startWivesPhase()
-                  setSelectedId(null)
-                }}
-              >
-                مراجعة الزوجات رجلاً برجُل
-              </button>
-              {multiWifeCount > 0 && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setReviewFocus('mothers')
-                    tree.startMothersPhase()
-                    setSelectedId(null)
-                  }}
-                >
-                  مراجعة الأمهات لمتعددي الزوجات ({multiWifeCount.toLocaleString('ar')})
-                </button>
-              )}
-              <button
-                onClick={() =>
-                  download(
-                    'nasab.json',
-                    tree.exportProject(),
-                    'application/json',
-                  )
-                }
-              >
-                تنزيل JSON
-              </button>
-              <button
-                onClick={() =>
-                  download(
-                    'nasab.txt',
-                    exportOutline(tree.root!),
-                    'text/plain',
-                  )
-                }
-              >
-                تنزيل النص
-              </button>
-              <button className="ghost" onClick={onGoHome}>
-                شجرة أخرى
-              </button>
-            </div>
-          </section>
-        )}
-      </main>
-
-      <aside className="sidebar" ref={sidebarRef}>
-        <div
-          className="sidebar-resizer"
-          role="separator"
-          aria-label="تغيير عرض شجرة الأشخاص"
-          aria-orientation="vertical"
-          aria-valuemin={260}
-          aria-valuemax={560}
-          aria-valuenow={sidebarWidth}
-          tabIndex={0}
-          onPointerDown={startSidebarResize}
-          onPointerMove={resizeSidebar}
-          onPointerUp={stopSidebarResize}
-          onPointerCancel={stopSidebarResize}
-          onDoubleClick={() => updateSidebarWidth(320)}
-          onKeyDown={(event) => {
-            if (event.key === 'ArrowRight' || event.key === 'ArrowUp') {
-              event.preventDefault()
-              updateSidebarWidth(sidebarWidth + 20)
-            }
-            if (event.key === 'ArrowLeft' || event.key === 'ArrowDown') {
-              event.preventDefault()
-              updateSidebarWidth(sidebarWidth - 20)
-            }
-            if (event.key === 'Home') updateSidebarWidth(260)
-            if (event.key === 'End') updateSidebarWidth(560)
-          }}
-        />
-        <div className="sidebar-heading">
-          <div>
-            <p className="eyebrow">الفهرس</p>
-            <h3>شجرة الأشخاص</h3>
-          </div>
-          {selectedId && (
-            <button className="compact-button" onClick={() => setSelectedId(null)}>
-              موضع الإدخال
-            </button>
-          )}
-        </div>
-        <div className="data-actions">
-          <button
-            className="compact-button"
-            onClick={() =>
-              download(
-                'nasab-backup.json',
-                tree.exportProject(),
-                'application/json',
-              )
-            }
-          >
-            تصدير JSON
-          </button>
-          <label className="compact-button import-button">
-            استيراد JSON
-            <input
-              type="file"
-              accept=".json,application/json"
-              onChange={(event) => {
-                const file = event.target.files?.[0]
-                if (file) void importJson(file)
-                event.target.value = ''
-              }}
-            />
-          </label>
-          {importMessage && (
-            <span className="import-message" role="status">
-              {importMessage}
-            </span>
-          )}
-        </div>
-        <p className="tree-help">
-          {isWivesPhase
-            ? 'اختر أي رجل لمراجعة زوجاته أو تعديلها.'
-            : isMothersPhase
-              ? 'اختر رجلاً لتعديل أمهات أولاده (يتم حصر متعددي الزوجات فقط).'
-              : isComplete
-                ? 'اختر أي رجل لمراجعة أبنائه أو زوجاته أو أمهاتهم.'
-                : 'اختر أي رجل لمراجعة أبنائه وبناته.'}
-        </p>
-        <TreeRoot
-          person={tree.root}
-          currentId={tree.currentPersonId}
-          selectedId={selectedId ?? tree.currentPersonId}
-          visitedIds={visitedIds}
-          onSelect={(person) => {
-            setSelectedId(person.id)
-          }}
-        />
-      </aside>
-
-      {isLinkModalOpen && (
-        <LinkTreeModal
-          isOpen={isLinkModalOpen}
-          onClose={() => setIsLinkModalOpen(false)}
-          mainTree={null}
-          allTrees={sessions}
-          targetBranchTreeId={treeId}
-          onCreateLinkedTree={handleCreateLinkedTree}
-          onLinkExistingTree={handleLinkExistingTree}
-        />
-      )}
-    </div>
+    <Suspense fallback={<RouteLoading />}>
+      <PrintableTributeView
+        root={effectiveRoot}
+        treeName={effectiveTitle}
+        linkedFrom={tree.linkedFrom}
+        linkedTrees={printUnified ? undefined : linkedTrees}
+        isUnified={printUnified}
+        branchCount={branchCount}
+        onToggleUnified={hasConnectedBranches ? () => setPrintUnified((prev) => !prev) : undefined}
+        onGoBack={onGoBack}
+        onGoToChart={onGoToChart}
+        onOpenTree={onOpenTree}
+      />
+    </Suspense>
   )
 }
