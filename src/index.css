@@ -33,9 +33,12 @@
   --success:      oklch(0.54 0.130 150);
   --success-soft: oklch(0.94 0.040 150);
 
-  /* ── Typography ── */
-  --sans:  'Inter', Tahoma, 'Segoe UI', system-ui, -apple-system, sans-serif;
-  --serif: 'Inter', Tahoma, 'Segoe UI', system-ui, sans-serif;
+  /* ── Typography ──
+     Inter keeps Latin text and numbers crisp. Arabic falls through to Noto
+     Naskh Arabic, which is much more legible than the system Arabic fallback.
+     Amiri is reserved for display headings and the brand. */
+  --sans:  'Inter', 'Noto Naskh Arabic', Tahoma, 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --serif: 'Amiri', 'Noto Naskh Arabic', 'Inter', Tahoma, 'Segoe UI', serif;
   --mono:  ui-monospace, 'Cascadia Mono', Consolas, monospace;
 
   /* ── Shadows ── */
@@ -49,11 +52,14 @@
 
   font-family: var(--sans);
   font-size: 16px;
-  line-height: 1.55;
+  line-height: 1.65;
   color: var(--text);
   background: var(--bg);
   color-scheme: light;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  font-feature-settings: 'kern' 1, 'liga' 1, 'calt' 1;
 }
 
 * {
@@ -76,8 +82,14 @@ h3 {
   font-family: var(--serif);
   font-weight: 700;
   color: var(--text-strong);
-  letter-spacing: -0.02em;
+  letter-spacing: 0;
+  line-height: 1.35;
   margin: 0;
+}
+
+::selection {
+  background: color-mix(in oklch, var(--accent) 30%, transparent);
+  color: var(--text-strong);
 }
 
 p {
