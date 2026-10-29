@@ -104,7 +104,7 @@ export function MothersAssignForm({
           <span className="person-code">{person.id}</span>
         </div>
         <p className="entry-help">
-          أدخل الأبناء والبنات أولاً، ثم اربط كل واحد بأمه من الزوجات.
+          أدخل الأبناء والبنات أولاً، ثم عيّن أم كل واحد.
         </p>
         {onBack && (
           <div className="batch-actions">
@@ -134,7 +134,7 @@ export function MothersAssignForm({
           <span className="person-code">{person.id}</span>
         </div>
         <p className="entry-help">
-          سجّل زوجات هذا الرجل أولاً من تبويب الزوجات، ثم عيّن أم كل ولد.
+          سجّل زوجات الرجل أولاً، ثم عيّن أم كل ولد.
         </p>
         {onBack && (
           <div className="batch-actions">
@@ -175,8 +175,8 @@ export function MothersAssignForm({
       </div>
 
       <p className="entry-help">
-        لأن للرجل أكثر من زوجة أحياناً، عيّن أم كل ابن وبنت من قائمة الزوجات.
-        اترك «غير معروفة» إن لم يذكر الكتاب الأم.
+        إن كان للرجل أكثر من زوجة، عيّن أم كل ابن وبنت. اترك «غير معروفة» إن
+        لم تذكرها المصادر.
       </p>
 
       {wives.length > 1 && (

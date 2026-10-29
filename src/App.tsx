@@ -8,6 +8,9 @@ const VisualTreeChart = lazy(() =>
 const PrintableTributeView = lazy(() =>
   import('./components/PrintableTributeView').then((m) => ({ default: m.PrintableTributeView })),
 )
+const HelpPage = lazy(() =>
+  import('./components/HelpPage').then((m) => ({ default: m.HelpPage })),
+)
 import {
   EditorCodeModal,
   isEditorUnlocked,
@@ -49,7 +52,7 @@ function formatDate(iso: string) {
 
 function getUrlParams(): {
   treeId: string | null
-  view: 'editor' | 'chart' | 'print' | 'stepped-editor'
+  view: 'editor' | 'chart' | 'print' | 'stepped-editor' | 'help'
   personId: string | null
   unified: boolean
 } {
@@ -60,13 +63,15 @@ function getUrlParams(): {
     personId: params.get('person'),
     unified: params.get('unified') === '1' || params.get('unified') === 'true',
     view:
-      v === 'chart'
-        ? 'chart'
-        : v === 'print'
-          ? 'print'
-          : v === 'stepped-editor' || v === 'editor'
-            ? 'stepped-editor'
-            : 'editor',
+      v === 'help'
+        ? 'help'
+        : v === 'chart'
+          ? 'chart'
+          : v === 'print'
+            ? 'print'
+            : v === 'stepped-editor' || v === 'editor'
+              ? 'stepped-editor'
+              : 'editor',
   }
 }
 
@@ -106,7 +111,7 @@ export default function App() {
 
   function navigate(
     id: string | null,
-    view: 'editor' | 'chart' | 'print' | 'stepped-editor' = 'editor',
+    view: 'editor' | 'chart' | 'print' | 'stepped-editor' | 'help' = 'editor',
     personId?: string | null,
     unified?: boolean
   ) {
@@ -115,17 +120,34 @@ export default function App() {
       url += `?t=${id}`
       if (view === 'chart') url += '&view=chart'
       else if (view === 'print') url += '&view=print'
+      else if (view === 'help') url += '&view=help'
       else if (view === 'stepped-editor') url += '&view=stepped-editor'
       if (personId) url += `&person=${personId}`
       if (unified) url += '&unified=1'
+    } else if (view === 'help') {
+      url += '?view=help'
     }
     history.pushState({}, '', url)
     setRoute({
       treeId: id,
-      view: id ? view : 'editor',
+      view,
       personId: personId || null,
       unified: !!unified,
     })
+  }
+
+  if (route.view === 'help') {
+    return (
+      <Suspense fallback={<RouteLoading />}>
+        <HelpPage
+          treeId={route.treeId}
+          onGoHome={() => navigate(null)}
+          onGoToChart={
+            route.treeId ? () => navigate(route.treeId, 'chart') : undefined
+          }
+        />
+      </Suspense>
+    )
   }
 
   if (!route.treeId) {
@@ -134,6 +156,7 @@ export default function App() {
         onNavigate={(id) => navigate(id, 'chart')}
         onView={(id) => navigate(id, 'chart')}
         onEdit={(id) => navigate(id, 'stepped-editor')}
+        onHelp={() => navigate(null, 'help')}
       />
     )
   }
@@ -173,6 +196,7 @@ export default function App() {
       onGoToEditor={() => navigate(route.treeId, 'stepped-editor')}
       onGoToPrint={(unified) => navigate(route.treeId, 'print', null, unified)}
       onGoHome={() => navigate(null)}
+      onGoToHelp={() => navigate(route.treeId, 'help')}
       onOpenTree={(id, personId) => navigate(id, 'chart', personId)}
     />
   )
@@ -184,10 +208,12 @@ function HomeScreen({
   onNavigate,
   onView,
   onEdit,
+  onHelp,
 }: {
   onNavigate: (id: string) => void
   onView: (id: string) => void
   onEdit: (id: string) => void
+  onHelp: () => void
 }) {
   const {
     sessions,
@@ -404,7 +430,7 @@ create trigger trees_updated_at
           <span className="brand-mark">ن</span>
           <div className="brand-text-col">
             <span className="brand-title">نَسَب</span>
-            <span className="brand-subtitle">شجرة القبيلة والنسب</span>
+            <span className="brand-subtitle">سجل العائلة</span>
           </div>
         </div>
 
@@ -501,7 +527,7 @@ create trigger trees_updated_at
         <section className="home-intro-clean">
           <h1 className="home-page-title">السجلات العائلية</h1>
           <p className="home-page-sub">
-            سجل أنساب وذرية العائلة — اختر سجلاً لاستعراضه
+            أنساب العائلة وفروعها — اختر سجلاً للعرض
           </p>
 
           {sessions.length > 0 && (
@@ -541,10 +567,8 @@ create trigger trees_updated_at
         ) : sessions.length === 0 ? (
           <div className="home-empty-card">
             <div className="home-empty-icon">🌳</div>
-            <p className="home-empty-title">لا توجد أشجار عائلية بعد</p>
-            <p className="home-empty-sub">
-              ابدأ بإنشاء أول شجرة لتوثيق أنساب العائلة.
-            </p>
+            <p className="home-empty-title">لا توجد سجلات بعد</p>
+            <p className="home-empty-sub">أنشئ أول شجرة لعائلتك.</p>
             <button
               className="primary home-empty-create-btn"
               onClick={() => requireEditorAccess(() => void handleCreate())}
@@ -555,7 +579,7 @@ create trigger trees_updated_at
         ) : filteredMainTrees.length === 0 && searchQuery ? (
           <div className="home-empty-card">
             <p className="home-empty-title">لا توجد نتائج تطابق «{searchQuery}»</p>
-            <p className="home-empty-sub">جرّب البحث باسم آخر أو امسح حقل البحث.</p>
+            <p className="home-empty-sub">جرّب اسماً آخر أو امسح البحث.</p>
             <button
               type="button"
               className="compact-button"
@@ -827,9 +851,14 @@ create trigger trees_updated_at
         )}
 
         <footer className="home-footer-hint">
-          {isOffline
-            ? '💡 يمكنك استعراض وتعديل الجلسات المحملة بالكامل بدون إنترنت، وستُرفع تلقائياً فور اتصالك.'
-            : '💡 السجلات متاحة للجميع للاستعراض والقراءة، بينما التعديل محمي برمز مرور العائلة.'}
+          <span>
+            {isOffline
+              ? '💡 الجلسات المحملة تعمل بدون إنترنت، وتُرفع التغييرات عند الاتصال.'
+              : '💡 الاستعراض متاح للجميع، والتعديل يحتاج رمز العائلة.'}
+          </span>
+          <button type="button" className="home-help-link" onClick={onHelp}>
+            كيف تستخدم التطبيق؟
+          </button>
         </footer>
       </div>
 
@@ -913,8 +942,8 @@ function SteppedEditorPage({
         <p className="eyebrow">نَسَب · صفحة الإدخال</p>
         <h1>صفحة الإدخال محمية</h1>
         <p className="lede">
-          صفحة الإدخال تُستخدم لإضافة الأبناء والزوجات والأمهات خطوة بخطوة. أدخل
-          رمز العائلة لفتحها، أو ارجع إلى المخطط للاستعراض فقط.
+          أضف الأبناء والزوجات والأمهات خطوة بخطوة. أدخل رمز العائلة للبدء، أو
+          ارجع إلى المخطط للاستعراض.
         </p>
         <div className="actions" style={{ justifyContent: 'center' }}>
           <button
@@ -949,6 +978,7 @@ function TreeChartPage({
   onGoToEditor,
   onGoToPrint,
   onGoHome,
+  onGoToHelp,
   onOpenTree,
 }: {
   treeId: string
@@ -956,6 +986,7 @@ function TreeChartPage({
   onGoToEditor: () => void
   onGoToPrint: (isUnified?: boolean) => void
   onGoHome: () => void
+  onGoToHelp: () => void
   onOpenTree?: (id: string, personId?: string) => void
 }) {
   const tree = useTreeBuilder(treeId)
@@ -1044,7 +1075,8 @@ function TreeChartPage({
           <p className="eyebrow">سجل فارغ</p>
           <h1 style={{ fontSize: '26px', marginBottom: '8px' }}>لم يتم إدخال بيانات هذا السجل بعد</h1>
           <p className="lede" style={{ margin: '0 auto 20px', maxWidth: '40ch' }}>
-            هذا السجل جديد ولا يحتوي على جد أساسي أو أفراد. ابدأ بإضافة الجد الأعلى ثم أضف الأبناء والزوجات من المخطط.
+            هذا السجل جديد. ابدأ بإضافة الجد الأعلى، ثم أضف الأبناء والزوجات
+            من المخطط.
           </p>
           <div style={{ display: 'flex', gap: '10px', justifyContent: 'center', flexWrap: 'wrap' }}>
             {isUnlocked ? (
@@ -1147,14 +1179,16 @@ function TreeChartPage({
           </button>
         )}
 
-        <button
-          type="button"
-          className="compact-button"
-          onClick={onGoToEditor}
-          title="فتح صفحة الإدخال خطوة بخطوة (أبناء، زوجات، أمهات)"
-        >
-          📝 صفحة الإدخال
-        </button>
+        {isUnlocked && (
+          <button
+            type="button"
+            className="compact-button"
+            onClick={onGoToEditor}
+            title="فتح صفحة الإدخال خطوة بخطوة (أبناء، زوجات، أمهات)"
+          >
+            📝 صفحة الإدخال
+          </button>
+        )}
 
         <button
           type="button"
@@ -1163,6 +1197,16 @@ function TreeChartPage({
           title="عرض وطباعة وثيقة وسجل النسب"
         >
           🖨️ {showUnifiedView && hasConnectedBranches ? 'طباعة السجل الموحد' : 'وثيقة للطباعة'}
+        </button>
+
+        <button
+          type="button"
+          className="compact-button"
+          onClick={onGoToHelp}
+          title="كيف تستخدم التطبيق"
+          aria-label="كيف تستخدم التطبيق"
+        >
+          ؟
         </button>
 
         {hasConnectedBranches && (
@@ -1396,8 +1440,8 @@ function TreePrintPage({
   const cleanMainName = cleanBranchOrTreeTitle(mainTreeName)
   const cleanRootName = cleanBranchOrTreeTitle(tree.root.name)
   const effectiveTitle = printUnified && unifiedResult?.root
-    ? `السجل الموحد لنسب آل ${cleanMainName}`
-    : `سجل نسب آل ${cleanRootName}`
+    ? `السجل الموحد لعائلة آل ${cleanMainName}`
+    : `سجل عائلة آل ${cleanRootName}`
 
   return (
     <Suspense fallback={<RouteLoading />}>

@@ -218,7 +218,7 @@ export function TreeWifePicker({
           <div>
             <h2 className="twp-title">اختيار زوجة من أشجار العائلة</h2>
             <p className="twp-subtitle">
-              يمكنك اختيار الزوجة من الشجرة الحالية أو من أي شجرة أخرى من أشجارك
+              اختر الزوجة من الشجرة الحالية أو من أي شجرة أخرى من أشجارك
             </p>
           </div>
           <button

@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import type { Person, TreeLink, TreeMeta, Wife } from '../types'
 import {
   findPath,
@@ -197,10 +197,18 @@ export function PrintableTributeView({
     }
     name = cleanBranchOrTreeTitle(name) || 'العائلة'
     if (isUnified) {
-      return `السجل الموحد لنسب آل ${name}`
+      return `السجل الموحد لعائلة آل ${name}`
     }
-    return `سجل نسب آل ${name}`
+    return `سجل عائلة آل ${name}`
   }, [isUnified, treeName, root.name])
+
+  useEffect(() => {
+    const previousTitle = document.title
+    document.title = docTitle
+    return () => {
+      document.title = previousTitle
+    }
+  }, [docTitle])
 
   return (
     <div className="print-page-wrapper" dir="rtl">

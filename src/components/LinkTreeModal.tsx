@@ -291,7 +291,7 @@ export function LinkTreeModal({
 
         {mode === 'link_existing' && (
           <div className="link-mode-help-banner">
-            💡 <strong>ربط شجرة مستقلة قائمة:</strong> يمكنك بناء أي شجرة عائلة كشجرة منفصلة ومستقلة تماماً، ثم ربطها بالشجرة الأساسية التي تختارها (مثلاً: أخت الجد الخامس هي أم لشجرة العائلة المنفصلة)، كما يمكنك فك الارتباط في أي وقت متى شئت لتعود مستقلة.
+            💡 <strong>ربط شجرة مستقلة:</strong> اربط شجرة قائمة بالشجرة الأساسية، مثل شجرة أمها إحدى نساء العائلة. الربط قابل للفك لاحقاً.
           </div>
         )}
 
@@ -338,7 +338,7 @@ export function LinkTreeModal({
                 <span className="card-icon">🧬</span>
                 <div className="card-body">
                   <strong>فرع أم / بنت من العائلة (أبناؤها وذريتهم)</strong>
-                  <p>توثيق ذرية إحدى نساء العائلة (أخت الجد، عمة، خالة، أو بنت) كأم لشجرة عائلة أخرى</p>
+                  <p>ذرية إحدى نساء العائلة: أخت الجد، عمة، خالة، أو بنت.</p>
                 </div>
               </label>
 
@@ -357,7 +357,7 @@ export function LinkTreeModal({
                 <span className="card-icon">🤝</span>
                 <div className="card-body">
                   <strong>فرع أخ للجد الأكبر</strong>
-                  <p>شجرة لذرية أخ الجد الأساسي كنسب موازٍ</p>
+                  <p>ذرية أخ الجد الأساسي، كنسب موازٍ.</p>
                 </div>
               </label>
 
@@ -374,7 +374,7 @@ export function LinkTreeModal({
                 <span className="card-icon">🌿</span>
                 <div className="card-body">
                   <strong>فرع أو نسب آخر</strong>
-                  <p>صلة قرابة أو مصاهرة أخرى محددة</p>
+                  <p>صلة قرابة أو مصاهرة أخرى.</p>
                 </div>
               </label>
             </div>

@@ -3670,11 +3670,32 @@ input.home-search-pill-input {
 }
 
 .home-footer-hint {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 4px 14px;
   text-align: center;
   font-size: 13px;
   color: var(--text-dim);
   margin-top: 8px;
   opacity: 0.9;
+}
+
+.home-help-link {
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.home-help-link:hover {
+  color: var(--text);
 }
 
 /* ── Editor Code Modal (server-verified passcode) ── */

@@ -596,8 +596,8 @@ export function cleanLineageText(text: string): string {
 export function cleanBranchOrTreeTitle(title: string): string {
   if (!title) return ''
   return title
-    .replace(/^السجل الموحد لنسب آل\s+/i, '')
-    .replace(/^سجل نسب آل\s+/i, '')
+    .replace(/^السجل الموحد (?:لنسب|لعائلة) آل\s+/i, '')
+    .replace(/^سجل (?:نسب|عائلة) آل\s+/i, '')
     .replace(/(?:^|\s)شجرة(?:\s+|$)/gi, ' ')
     .replace(/\s*\(شجرة[^)]*\)/gi, '')
     .replace(/\s*\[شجرة[^\]]*\]/gi, '')

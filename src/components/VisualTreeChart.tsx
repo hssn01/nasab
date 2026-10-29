@@ -876,6 +876,12 @@ export function VisualTreeChart({
   const [tribeSearchQuery, setTribeSearchQuery] = useState('')
   const [showTreeWifePicker, setShowTreeWifePicker] = useState(false)
 
+  useEffect(() => {
+    if (effectiveEditMode) return
+    setModalTab('info')
+    setShowTreeWifePicker(false)
+  }, [effectiveEditMode])
+
   // Precomputed map of all females' husbands and children
   const femalesRelationsMap = useMemo(() => {
     return getAllFemalesRelations(root)
@@ -2400,7 +2406,7 @@ export function VisualTreeChart({
               </div>
             )}
 
-            {modalTab === 'rename' && (
+            {modalTab === 'rename' && effectiveEditMode && (
               <form
                 className="modal-form"
                 onSubmit={(e) => {
@@ -2436,7 +2442,7 @@ export function VisualTreeChart({
               </form>
             )}
 
-            {modalTab === 'children' && (
+            {modalTab === 'children' && effectiveEditMode && (
               <form
                 className="modal-form"
                 onSubmit={(e) => {
@@ -2497,7 +2503,7 @@ export function VisualTreeChart({
               </form>
             )}
 
-            {modalTab === 'wives' && (
+            {modalTab === 'wives' && effectiveEditMode && (
               <div className="modal-form">
 
 
@@ -2668,7 +2674,7 @@ export function VisualTreeChart({
       )}
 
       {/* Cross-tree wife picker dialog */}
-      {showTreeWifePicker && actionPerson && (
+      {showTreeWifePicker && actionPerson && effectiveEditMode && (
         <TreeWifePicker
           root={root}
           linkedIds={linkedFemaleIds}
