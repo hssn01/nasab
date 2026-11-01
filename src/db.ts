@@ -7,6 +7,12 @@ import {
   saveSessionLocally,
 } from './localDb'
 import { relationalToTree, treeToRelational } from './relationalAdapter'
+import {
+  personRowChanged,
+  unionRowChanged,
+  type PersonRowSnapshot as ExistingPersonRow,
+  type UnionRowSnapshot as ExistingUnionRow,
+} from './rowDiff'
 import { validateTreeForSave } from './treeUtils'
 import type {
   Person,
@@ -253,23 +259,12 @@ async function hydrateDbIds(treeId: string, state: TreeState): Promise<void> {
 
 const RELATIONAL_PAGE_SIZE = 1000
 
-interface ExistingPersonRow {
-  id: string
-  father_id: string | null
-  sibling_order: number
-}
-
-interface ExistingUnionRow {
-  id: string
-  husband_id: string
-}
-
 async function fetchExistingPersonRows(treeId: string): Promise<ExistingPersonRow[] | null> {
   const rows: ExistingPersonRow[] = []
   for (let from = 0; ; from += RELATIONAL_PAGE_SIZE) {
     const { data, error } = await supabase
       .from('persons')
-      .select('id, father_id, sibling_order')
+      .select('id, code, name, gender, father_id, mother_union_id, sibling_order, branch_meta')
       .eq('tree_id', treeId)
       .order('id')
       .range(from, from + RELATIONAL_PAGE_SIZE - 1)
@@ -289,7 +284,7 @@ async function fetchExistingUnionRows(treeId: string): Promise<ExistingUnionRow[
   for (let from = 0; ; from += RELATIONAL_PAGE_SIZE) {
     const { data, error } = await supabase
       .from('unions')
-      .select('id, husband_id')
+      .select('id, code, husband_id, wife_person_id, external_name, external_family, external_tribe, marriage_order, legacy')
       .eq('tree_id', treeId)
       .order('id')
       .range(from, from + RELATIONAL_PAGE_SIZE - 1)
@@ -339,28 +334,44 @@ function conflictSiblingOrderOverrides(
   return overrides
 }
 
+/**
+ * Writes only rows that differ from the cloud copy. The app used to upsert the
+ * whole tree on every save (2,200+ rows), which bloated the WAL, the indexes and
+ * the audit log. `existing` is the snapshot read at the start of the save; when
+ * it is missing (new tree, retry) every row is written as before.
+ */
 async function upsertPersonRows(
   treeId: string,
   persons: RelationalTreeBundle['persons'],
   now: string,
+  existing?: ExistingPersonRow[] | null,
   orderOverrides?: Map<string, number>,
   motherUnionOverrides?: Map<string, string | null>,
+  forceIds?: Set<string>,
 ): Promise<boolean> {
   if (persons.length === 0) return true
-  const rows = persons.map((p) => ({
-    id: p.id,
-    tree_id: treeId,
-    code: p.code,
-    name: p.name,
-    gender: p.gender,
-    father_id: p.fatherId ?? null,
-    mother_union_id: motherUnionOverrides?.has(p.id)
-      ? (motherUnionOverrides.get(p.id) ?? null)
-      : (p.motherUnionId ?? null),
-    sibling_order: orderOverrides?.get(p.id) ?? p.siblingOrder,
-    branch_meta: p.branchMeta ?? null,
-    updated_at: now,
-  }))
+  const existingById = existing ? new Map(existing.map((row) => [row.id, row])) : null
+  const rows = persons
+    .map((p) => ({
+      id: p.id,
+      tree_id: treeId,
+      code: p.code,
+      name: p.name,
+      gender: p.gender,
+      father_id: p.fatherId ?? null,
+      mother_union_id: motherUnionOverrides?.has(p.id)
+        ? (motherUnionOverrides.get(p.id) ?? null)
+        : (p.motherUnionId ?? null),
+      sibling_order: orderOverrides?.get(p.id) ?? p.siblingOrder,
+      branch_meta: p.branchMeta ?? null,
+      updated_at: now,
+    }))
+    .filter((row) => {
+      if (forceIds?.has(row.id)) return true
+      if (orderOverrides?.has(row.id) || motherUnionOverrides?.has(row.id)) return true
+      return personRowChanged(existingById?.get(row.id), row)
+    })
+  if (rows.length === 0) return true
   const { error } = await supabase.from('persons').upsert(rows, { onConflict: 'id' })
   if (error) {
     console.warn('[nasab] persons upsert:', error.message)
@@ -373,21 +384,26 @@ async function upsertUnionRows(
   treeId: string,
   unions: RelationalTreeBundle['unions'],
   now: string,
+  existing?: ExistingUnionRow[] | null,
 ): Promise<boolean> {
   if (unions.length === 0) return true
-  const rows = unions.map((u) => ({
-    id: u.id,
-    tree_id: treeId,
-    code: u.code,
-    husband_id: u.husbandId,
-    wife_person_id: u.wifePersonId ?? null,
-    external_name: u.externalName ?? null,
-    external_family: u.externalFamily ?? null,
-    external_tribe: u.externalTribute ?? null,
-    marriage_order: u.marriageOrder,
-    legacy: u.legacy ?? null,
-    updated_at: now,
-  }))
+  const existingById = existing ? new Map(existing.map((row) => [row.id, row])) : null
+  const rows = unions
+    .map((u) => ({
+      id: u.id,
+      tree_id: treeId,
+      code: u.code,
+      husband_id: u.husbandId,
+      wife_person_id: u.wifePersonId ?? null,
+      external_name: u.externalName ?? null,
+      external_family: u.externalFamily ?? null,
+      external_tribe: u.externalTribute ?? null,
+      marriage_order: u.marriageOrder,
+      legacy: u.legacy ?? null,
+      updated_at: now,
+    }))
+    .filter((row) => unionRowChanged(existingById?.get(row.id), row))
+  if (rows.length === 0) return true
   const { error } = await supabase.from('unions').upsert(rows, { onConflict: 'id' })
   if (error) {
     console.warn('[nasab] unions upsert:', error.message)
@@ -424,20 +440,39 @@ async function upsertRelationalRows(
   bundle: RelationalTreeBundle,
   now: string,
   existingUnionIds: Set<string> = new Set(),
+  existing?: { persons: ExistingPersonRow[]; unions: ExistingUnionRow[] } | null,
+  forceIds?: Set<string>,
 ) {
   try {
     const newMotherUnionOverrides = getNewMotherUnionOverrides(bundle, existingUnionIds)
+    const forced = new Set<string>(forceIds ?? [])
+    for (const id of newMotherUnionOverrides.keys()) forced.add(id)
+
     if (newMotherUnionOverrides.size > 0) {
-      if (!(await upsertPersonRows(treeId, bundle.persons, now, undefined, newMotherUnionOverrides))) {
+      if (
+        !(await upsertPersonRows(
+          treeId,
+          bundle.persons,
+          now,
+          existing?.persons,
+          undefined,
+          newMotherUnionOverrides,
+          forced,
+        ))
+      ) {
         return false
       }
-      if (!(await upsertUnionRows(treeId, bundle.unions, now))) return false
-      if (!(await upsertPersonRows(treeId, bundle.persons, now))) return false
+      if (!(await upsertUnionRows(treeId, bundle.unions, now, existing?.unions))) return false
+      if (!(await upsertPersonRows(treeId, bundle.persons, now, existing?.persons, undefined, undefined, forced))) {
+        return false
+      }
       return true
     }
 
-    if (!(await upsertPersonRows(treeId, bundle.persons, now))) return false
-    if (!(await upsertUnionRows(treeId, bundle.unions, now))) return false
+    if (!(await upsertPersonRows(treeId, bundle.persons, now, existing?.persons, undefined, undefined, forced))) {
+      return false
+    }
+    if (!(await upsertUnionRows(treeId, bundle.unions, now, existing?.unions))) return false
     return true
   } catch (err) {
     console.warn('[nasab] upsertRelationalRows failed silently:', err)
@@ -929,18 +964,24 @@ export async function saveTreeState(
       const existingUnionIds = new Set(existingUnions.map((union) => union.id))
       const writeBundle = async (nextBundle: RelationalTreeBundle): Promise<boolean> => {
         const overrides = conflictSiblingOrderOverrides(existingPersons, nextBundle.persons)
+        const newMotherOverrides = getNewMotherUnionOverrides(nextBundle, existingUnionIds)
+        const forced = new Set<string>([
+          ...overrides.keys(),
+          ...newMotherOverrides.keys(),
+        ])
         if (overrides.size > 0) {
           // Stage conflicting rows at temporary high sibling orders, remove
           // the rows this save no longer contains, then write the final orders.
           // New mother unions must be staged as NULL too; otherwise the
           // mother-link trigger rejects the row before the union exists.
-          const newMotherOverrides = getNewMotherUnionOverrides(nextBundle, existingUnionIds)
           const tempOk = await upsertPersonRows(
             id,
             nextBundle.persons,
             now,
+            existingPersons,
             overrides,
             newMotherOverrides,
+            forced,
           )
           if (!tempOk) return false
           const nextPersonSet = new Set(nextBundle.persons.map((p) => p.id))
@@ -958,7 +999,14 @@ export async function saveTreeState(
             }
           }
         }
-        return upsertRelationalRows(id, nextBundle, now, existingUnionIds)
+        return upsertRelationalRows(
+          id,
+          nextBundle,
+          now,
+          existingUnionIds,
+          { persons: existingPersons, unions: existingUnions },
+          forced,
+        )
       }
 
       let rowsOk = await writeBundle(bundle)

@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import { relationalToTree, treeToRelational } from './relationalAdapter'
+import {
+  personRowChanged,
+  unionRowChanged,
+  type PersonRowSnapshot,
+  type UnionRowSnapshot,
+} from './rowDiff'
 import { buildUnifiedTree, normalizePersonTree, resolveWife } from './treeUtils'
-import type { Person, TreeState } from './types'
+import type { Person, RelationalPerson, RelationalUnion, TreeState } from './types'
 
 function makeState(): TreeState {
   const root: Person = {
@@ -158,6 +164,71 @@ describe('relational adapter', () => {
 
     const normalized = normalizePersonTree(state.root!)
     expect(normalized.wives[0].dbId).toBe('union-uuid')
+  })
+
+  it('reports no changed rows when a loaded tree is saved unchanged', () => {
+    const bundle = treeToRelational(
+      'main-tree',
+      'Main',
+      makeState(),
+      '2026-01-01T00:00:00.000Z',
+    )
+    const reloaded = relationalToTree(bundle)
+    const resaved = treeToRelational(
+      'main-tree',
+      'Main',
+      reloaded,
+      '2026-01-02T00:00:00.000Z',
+    )
+
+    const personSnapshot = (row: RelationalPerson): PersonRowSnapshot => ({
+      id: row.id,
+      code: row.code,
+      name: row.name,
+      gender: row.gender,
+      father_id: row.fatherId ?? null,
+      mother_union_id: row.motherUnionId ?? null,
+      sibling_order: row.siblingOrder,
+      branch_meta: row.branchMeta ?? null,
+    })
+    const personWrite = (row: RelationalPerson) => ({
+      ...personSnapshot(row),
+      tree_id: row.treeId,
+      updated_at: row.updated_at,
+    })
+    const unionSnapshot = (row: RelationalUnion): UnionRowSnapshot => ({
+      id: row.id,
+      code: row.code,
+      husband_id: row.husbandId,
+      wife_person_id: row.wifePersonId ?? null,
+      external_name: row.externalName ?? null,
+      external_family: row.externalFamily ?? null,
+      external_tribe: row.externalTribute ?? null,
+      marriage_order: row.marriageOrder,
+      legacy: row.legacy ?? null,
+    })
+    const unionWrite = (row: RelationalUnion) => ({
+      ...unionSnapshot(row),
+      tree_id: row.treeId,
+      updated_at: row.updated_at,
+    })
+
+    const personsBefore = new Map(
+      bundle.persons.map((row) => [row.id, personSnapshot(row)]),
+    )
+    const unionsBefore = new Map(
+      bundle.unions.map((row) => [row.id, unionSnapshot(row)]),
+    )
+
+    const changedPersons = resaved.persons.filter((row) =>
+      personRowChanged(personsBefore.get(row.id), personWrite(row)),
+    )
+    const changedUnions = resaved.unions.filter((row) => {
+      return unionRowChanged(unionsBefore.get(row.id), unionWrite(row))
+    })
+
+    expect(changedPersons.map((row) => row.code)).toEqual([])
+    expect(changedUnions.map((row) => row.code)).toEqual([])
   })
 })
 
