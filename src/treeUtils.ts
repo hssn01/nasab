@@ -1488,11 +1488,19 @@ export function getAllFemalesRelations(root: Person): Map<string, FemaleRelation
         if (w.type !== 'tree') continue
 
         const wifeId = w.personId?.toUpperCase().trim()
+        // A wife that carries a `treeId` belongs to another tree, and her code
+        // can also exist in this one: F020 is مريم here and السالمة in شجرة
+        // احبيب. Resolving her through the local fast path attached the wrong
+        // woman, so the local F020 showed another woman's husband and children.
+        // Cross-tree wives may only resolve to a real branch clone, which
+        // `resolveWife` already enforces.
+        const isCrossTreeWife = Boolean(w.treeId)
         // Fast path: most wives are already registered in this tree. Only fall
         // back to the deep cross-tree resolver for genuine branch wives.
-        let targetFemale: Person | null = wifeId
-          ? (femaleById.get(wifeId) ?? femaleByOriginalId.get(wifeId) ?? null)
-          : null
+        let targetFemale: Person | null =
+          !isCrossTreeWife && wifeId
+            ? (femaleById.get(wifeId) ?? femaleByOriginalId.get(wifeId) ?? null)
+            : null
         if (!targetFemale) targetFemale = resolveWife(w, root)
 
         if (!targetFemale) continue
